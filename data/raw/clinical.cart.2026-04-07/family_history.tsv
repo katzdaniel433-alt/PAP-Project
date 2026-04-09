@@ -1,0 +1,56 @@
+project.project_id	cases.case_id	cases.submitter_id	family_histories.family_history_id	family_histories.relationship_age_at_diagnosis	family_histories.relationship_gender	family_histories.relationship_primary_diagnosis	family_histories.relationship_sex_at_birth	family_histories.relationship_type	family_histories.relative_deceased	family_histories.relative_smoker	family_histories.relative_with_cancer_history	family_histories.relatives_with_cancer_history_count	family_histories.submitter_id
+TCGA-MESO	0ab19ae8-c095-48d6-b1aa-0f5ae75c6e68	TCGA-MQ-A4LM	'--	'--	'--	Throat Cancer	'--	Grandparent	'--	'--	yes	'--	'--
+TCGA-MESO	0c7b4b9c-d497-41fc-a2b9-014bb5e07985	TCGA-SC-AA5Z	'--	'--	'--	Colorectal Cancer	'--	Parent	'--	'--	yes	'--	'--
+TCGA-MESO	1c848577-c3a4-4830-abfa-549992172396	TCGA-3H-AB3S	'--	'--	'--	Leukemia	'--	Parent	'--	'--	yes	'--	'--
+TCGA-MESO	1c848577-c3a4-4830-abfa-549992172396	TCGA-3H-AB3S	'--	'--	'--	Colorectal Cancer	'--	Grandparent	'--	'--	yes	'--	'--
+TCGA-MESO	1c848577-c3a4-4830-abfa-549992172396	TCGA-3H-AB3S	'--	'--	'--	Skin Cancer	'--	Parent	'--	'--	yes	'--	'--
+TCGA-MESO	1c848577-c3a4-4830-abfa-549992172396	TCGA-3H-AB3S	'--	'--	'--	Skin Cancer	'--	Grandparent	'--	'--	yes	'--	'--
+TCGA-MESO	1f91f13c-bc22-4a5b-9c8f-54782d3909a0	TCGA-LK-A4O0	'--	'--	'--	Breast Cancer	'--	Parent	'--	'--	yes	'--	'--
+TCGA-MESO	1f91f13c-bc22-4a5b-9c8f-54782d3909a0	TCGA-LK-A4O0	'--	'--	'--	Pancreas Cancer	'--	Sibling	'--	'--	yes	'--	'--
+TCGA-MESO	24ea3cd5-c2e6-44f7-9658-78af7befeef7	TCGA-3U-A98F	'--	'--	'--	Thyroid Cancer	'--	Sibling	'--	'--	yes	'--	'--
+TCGA-MESO	24ea3cd5-c2e6-44f7-9658-78af7befeef7	TCGA-3U-A98F	'--	'--	'--	Prostate Cancer	'--	Parent	'--	'--	yes	'--	'--
+TCGA-MESO	2b740646-7cd4-4c7f-890a-7b3db6ebc1b8	TCGA-UD-AAC4	'--	'--	'--	Lung Cancer	'--	Parent	'--	'--	yes	'--	'--
+TCGA-MESO	4d9f1899-4a41-4e57-bdad-b12eb0d47629	TCGA-MQ-A6BN	'--	'--	'--	Breast Cancer	'--	Sibling	'--	'--	yes	'--	'--
+TCGA-MESO	4d9f1899-4a41-4e57-bdad-b12eb0d47629	TCGA-MQ-A6BN	'--	'--	'--	Gastric Cancer	'--	Sibling	'--	'--	yes	'--	'--
+TCGA-MESO	50921ca1-5d70-4162-8847-74e874114284	TCGA-MQ-A6BS	'--	'--	'--	Lung Cancer	'--	Parent	'--	'--	yes	'--	'--
+TCGA-MESO	50921ca1-5d70-4162-8847-74e874114284	TCGA-MQ-A6BS	'--	'--	'--	Brain Cancer	'--	Parent	'--	'--	yes	'--	'--
+TCGA-MESO	54d21956-25e4-42df-adbe-6907721fc4b5	TCGA-ZN-A9VW	'--	'--	'--	'--	'--	Grandparent	'--	'--	yes	'--	'--
+TCGA-MESO	676ea428-80ef-4371-b90b-95e46708278c	TCGA-ZN-A9VS	'--	'--	'--	Melanoma	'--	Sibling	'--	'--	yes	'--	'--
+TCGA-MESO	676ea428-80ef-4371-b90b-95e46708278c	TCGA-ZN-A9VS	'--	'--	'--	Pancreas Cancer	'--	Parent	'--	'--	yes	'--	'--
+TCGA-MESO	7d93f1b4-3460-4917-9f33-2a9c6df773f2	TCGA-TS-A7P3	'--	'--	'--	Brain Cancer	'--	Sibling	'--	'--	yes	'--	'--
+TCGA-MESO	8ba34bcc-daad-4d69-9f02-e6a1c18de68b	TCGA-TS-A8AI	'--	'--	'--	Kidney Cancer	'--	Parent	'--	'--	yes	'--	'--
+TCGA-MESO	8ba34bcc-daad-4d69-9f02-e6a1c18de68b	TCGA-TS-A8AI	'--	'--	'--	Lymphoma	'--	Child	'--	'--	yes	'--	'--
+TCGA-MESO	97408569-ef36-46d6-941a-aca9e0ab297e	TCGA-UD-AABZ	'--	'--	'--	Lung Cancer	'--	Parent	'--	'--	yes	'--	'--
+TCGA-MESO	a48996be-7dae-451a-8129-9de8dfe7221a	TCGA-XT-AASU	'--	'--	'--	Bone Cancer	'--	Parent	'--	'--	yes	'--	'--
+TCGA-MESO	a48996be-7dae-451a-8129-9de8dfe7221a	TCGA-XT-AASU	'--	'--	'--	Ovarian Cancer	'--	Sibling	'--	'--	yes	'--	'--
+TCGA-MESO	b100c424-90c6-4e16-9d9e-40ad38606b5d	TCGA-MQ-A4LV	'--	'--	'--	Gynecologic Cancer	'--	Sibling	'--	'--	yes	'--	'--
+TCGA-MESO	b100c424-90c6-4e16-9d9e-40ad38606b5d	TCGA-MQ-A4LV	'--	'--	'--	Prostate Cancer	'--	Parent	'--	'--	yes	'--	'--
+TCGA-MESO	bbabcd40-0a6c-430f-8325-ee1ed1d08afa	TCGA-3U-A98G	'--	'--	'--	Breast Cancer	'--	Parent	'--	'--	yes	'--	'--
+TCGA-MESO	bbabcd40-0a6c-430f-8325-ee1ed1d08afa	TCGA-3U-A98G	'--	'--	'--	Pancreas Cancer	'--	Sibling	'--	'--	yes	'--	'--
+TCGA-MESO	bbabcd40-0a6c-430f-8325-ee1ed1d08afa	TCGA-3U-A98G	'--	'--	'--	Colorectal Cancer	'--	Parent	'--	'--	yes	'--	'--
+TCGA-MESO	c328f661-c109-4e01-b819-299a75bd4348	TCGA-3H-AB3U	'--	'--	'--	Ovarian Cancer	'--	Parent	'--	'--	yes	'--	'--
+TCGA-MESO	c328f661-c109-4e01-b819-299a75bd4348	TCGA-3H-AB3U	'--	'--	'--	Breast Cancer	'--	Child	'--	'--	yes	'--	'--
+TCGA-MESO	c5ad9aef-27c6-4101-befb-6227cd1266ba	TCGA-3U-A98I	'--	'--	'--	Prostate Cancer	'--	Parent	'--	'--	yes	'--	'--
+TCGA-MESO	c5ad9aef-27c6-4101-befb-6227cd1266ba	TCGA-3U-A98I	'--	'--	'--	Gastric Cancer	'--	Grandparent	'--	'--	yes	'--	'--
+TCGA-MESO	c5d4d4b4-2c9e-4865-8860-68327356d461	TCGA-3U-A98D	'--	'--	'--	Brain Cancer	'--	Sibling	'--	'--	yes	'--	'--
+TCGA-MESO	c9ce1f62-2df1-4974-868b-d075781ce282	TCGA-UT-A97Y	'--	'--	'--	Breast Cancer	'--	Child	'--	'--	yes	'--	'--
+TCGA-MESO	c9ce1f62-2df1-4974-868b-d075781ce282	TCGA-UT-A97Y	'--	'--	'--	Breast Cancer	'--	Grandparent	'--	'--	yes	'--	'--
+TCGA-MESO	ca9031aa-87e5-4d5b-a526-3615efac3077	TCGA-YS-A95C	'--	'--	'--	Prostate Cancer	'--	Parent	'--	'--	yes	'--	'--
+TCGA-MESO	d3a6accc-5c45-4e70-baf5-2188af53e0db	TCGA-MQ-A6BQ	'--	'--	'--	Mesothelioma	'--	Sibling	'--	'--	yes	'--	'--
+TCGA-MESO	d3a6accc-5c45-4e70-baf5-2188af53e0db	TCGA-MQ-A6BQ	'--	'--	'--	Mesothelioma	'--	Sibling	'--	'--	yes	'--	'--
+TCGA-MESO	d4d3c554-bab2-47e7-a1c8-8890db28abf8	TCGA-LK-A4NZ	'--	'--	'--	Prostate Cancer	'--	Sibling	'--	'--	yes	'--	'--
+TCGA-MESO	d4d3c554-bab2-47e7-a1c8-8890db28abf8	TCGA-LK-A4NZ	'--	'--	'--	Basal Cell Cancer	'--	Sibling	'--	'--	yes	'--	'--
+TCGA-MESO	d4d3c554-bab2-47e7-a1c8-8890db28abf8	TCGA-LK-A4NZ	'--	'--	'--	Pancreas Cancer	'--	Parent	'--	'--	yes	'--	'--
+TCGA-MESO	d4d3c554-bab2-47e7-a1c8-8890db28abf8	TCGA-LK-A4NZ	'--	'--	'--	Breast Cancer	'--	Sibling	'--	'--	yes	'--	'--
+TCGA-MESO	e23bc730-b369-4d6a-90ce-7223e234cd4d	TCGA-TS-A7P0	'--	'--	'--	Prostate Cancer	'--	Parent	'--	'--	yes	'--	'--
+TCGA-MESO	e611ee05-92c8-41d6-a052-18dd749f8779	TCGA-SH-A7BH	'--	'--	'--	Pancreas Cancer	'--	Sibling	'--	'--	yes	'--	'--
+TCGA-MESO	e611ee05-92c8-41d6-a052-18dd749f8779	TCGA-SH-A7BH	'--	'--	'--	Lung Cancer	'--	Parent	'--	'--	yes	'--	'--
+TCGA-MESO	e656cf38-2f5d-4306-90d9-ecb504d86351	TCGA-SC-A6LM	'--	'--	'--	Mesothelioma	'--	Sibling	'--	'--	yes	'--	'--
+TCGA-MESO	e656cf38-2f5d-4306-90d9-ecb504d86351	TCGA-SC-A6LM	'--	'--	'--	Mesothelioma	'--	Parent	'--	'--	yes	'--	'--
+TCGA-MESO	e656cf38-2f5d-4306-90d9-ecb504d86351	TCGA-SC-A6LM	'--	'--	'--	Mesothelioma	'--	Sibling	'--	'--	yes	'--	'--
+TCGA-MESO	e93761b9-e0a2-48d5-8b21-a6670021cae4	TCGA-TS-A8AV	'--	'--	'--	Skin Cancer	'--	Parent	'--	'--	yes	'--	'--
+TCGA-MESO	e93761b9-e0a2-48d5-8b21-a6670021cae4	TCGA-TS-A8AV	'--	'--	'--	Breast Cancer	'--	Parent	'--	'--	yes	'--	'--
+TCGA-MESO	eb5a5b41-b493-408c-902e-c625f5ba7d2f	TCGA-ZN-A9VP	'--	'--	'--	Lymphoma	'--	Parent	'--	'--	yes	'--	'--
+TCGA-MESO	eb5a5b41-b493-408c-902e-c625f5ba7d2f	TCGA-ZN-A9VP	'--	'--	'--	Prostate Cancer	'--	Parent	'--	'--	yes	'--	'--
+TCGA-MESO	ebe927e6-0a7e-4c97-ad73-f3c302cca7bc	TCGA-3H-AB3M	'--	'--	'--	Ovarian Cancer	'--	Parent	'--	'--	yes	'--	'--
+TCGA-MESO	f15667dc-8376-40b6-84b2-8f5370c3d66a	TCGA-ZN-A9VU	'--	'--	'--	Lung Cancer	'--	Parent	'--	'--	yes	'--	'--
