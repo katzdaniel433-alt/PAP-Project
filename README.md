@@ -1,16 +1,15 @@
-# ACTL4003 Mesothelioma Project
+# PAP Project
 
-This is a test repository for checking that the project clones correctly into RStudio.
+## Aim
+Predict mesothelioma survival using gene expression and DNA methylation data.
 
-## Project purpose
-Predicting mesothelioma survival using gene expression and DNA methylation data.
+## Setup
+1. Clone the repository
+2. Open `PAP-Project.Rproj`
+3. Run `renv::restore()`
 
-## Repository structure
-- `README.md` — project overview
-- `test_script.R` — simple R script to confirm the project is working
-
-## How to test after cloning
-1. Open the project in RStudio
-2. Open `test_script.R`
-3. Run the script
-4. Confirm that the console prints the message and creates a small test object
+## Workflow
+Run scripts in order:
+- `01_load_clean_data.R`
+- `02_eda_expression.R`
+- 
