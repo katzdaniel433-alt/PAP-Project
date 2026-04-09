@@ -1,0 +1,13 @@
+# Simple test script for checking that the GitHub repo cloned correctly
+
+message("Repository cloned successfully into RStudio.")
+
+project_name <- "ACTL4003 Mesothelioma Project"
+today <- Sys.Date()
+
+test_summary <- data.frame(
+  project = project_name,
+  date_opened = today
+)
+
+print(test_summary)
