@@ -1,0 +1,114 @@
+---
+title: "eda"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(janitor)
+```
+
+```{r}
+clinical_dir <- "/Users/katz/Desktop/UNi Year 4/Semester 1/Predictive Analytics /Assessments/Project/PAP-Project/data/raw/clinical.cart.2026-04-07/"
+
+clinical_raw <- read_tsv(
+  file.path(clinical_dir, "clinical.tsv"),
+  na = c("'--", "--", "", "NA")
+)
+
+glimpse(clinical_raw)
+dim(clinical_raw)
+```
+
+```{r}
+clinical_core <- clinical_raw %>%
+  transmute(
+    case_id = cases.submitter_id,
+    days_to_death = suppressWarnings(as.numeric(demographic.days_to_death)),
+    days_to_last_follow_up = suppressWarnings(as.numeric(diagnoses.days_to_last_follow_up)),
+    vital_status = demographic.vital_status,
+    age_at_diagnosis = suppressWarnings(as.numeric(diagnoses.age_at_diagnosis)),
+    sex = demographic.gender,
+    race = demographic.race,
+    ethnicity = demographic.ethnicity
+  ) %>%
+  distinct()
+```
+
+```{r}
+clinical_survival <- clinical_core %>%
+  mutate(
+    survived_500d = case_when(
+      !is.na(days_to_death) & days_to_death > 500 ~ 1,
+      !is.na(days_to_death) & days_to_death <= 500 ~ 0,
+      TRUE ~ NA_real_
+    )
+  )
+```
+
+```{r}
+clinical_survival %>%
+  summarise(
+    n_cases = n(),
+    n_with_days_to_death = sum(!is.na(days_to_death)),
+    n_survived_500d_known = sum(!is.na(survived_500d)),
+    n_survived_500d_yes = sum(survived_500d == 1, na.rm = TRUE),
+    n_survived_500d_no = sum(survived_500d == 0, na.rm = TRUE)
+  )
+```
+
+# RNA-seq
+
+```{r}
+rna_dir <- "/Users/katz/Desktop/UNi Year 4/Semester 1/Predictive Analytics /Assessments/Project/PAP-Project/data/raw/"
+
+rnaseq_raw <- read_csv(file.path(rna_dir, "gene_count_matrix_1pass_TCGA.csv"))
+
+dim(rnaseq_raw)
+names(rnaseq_raw)[1:10]
+```
+
+```{r}
+rna_samples <- tibble(sample_id = names(rnaseq_raw)[-1]) %>%
+  mutate(
+    case_id = str_sub(sample_id, 1, 12)
+  )
+
+rna_samples %>% slice_head(n = 10)
+```
+
+```{r}
+clinical_cases <- clinical_survival %>%
+  distinct(case_id)
+
+rna_case_overlap <- rna_samples %>%
+  semi_join(clinical_cases, by = "case_id")
+
+nrow(rna_samples)
+nrow(rna_case_overlap)
+```
+
+# Methylation sample sheet
+
+```{r}
+meth_dir <- "/Users/katz/Desktop/UNi Year 4/Semester 1/Predictive Analytics /Assessments/Project/PAP-Project/data/raw/"
+
+meth_sheet <- read_tsv(
+  file.path(meth_dir, "gdc_sample_sheet.2026-04-07.tsv")
+)
+
+glimpse(meth_sheet)
+```
+
+```{r}
+meth_map <- meth_sheet %>%
+  transmute(
+    file_name = `File Name`,
+    sample_id = `Sample ID`,
+    case_id = `Case ID`
+  ) %>%
+  distinct()
+
+meth_map %>% slice_head(n = 10)
+```
+
