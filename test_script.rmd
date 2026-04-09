@@ -1,5 +1,6 @@
 # Simple test script for checking that the GitHub repo cloned correctly
-# Hellooooo
+# WHATATTALSLKJFLKJSDlkfjlsjdf
+
 ```{r}
 message("Repository cloned successfully into RStudio.")
 ```
@@ -17,4 +18,8 @@ test_summary <- data.frame(
 print(test_summary)
 ```
 
+
+```{r}
+data.frame(1,2,3,4)
+```
 
