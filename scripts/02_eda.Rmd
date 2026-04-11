@@ -1,0 +1,176 @@
+---
+title: "02_eda"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(here)
+```
+
+
+```{r}
+#--------------------------------------------------
+# 1. Load interim data
+#--------------------------------------------------
+
+clinical_master <- read_rds(here("data", "interim", "clinical_master.rds"))
+expr_t <- read_rds(here("data", "interim", "expression_clean.rds"))
+meth_t <- read_rds(here("data", "interim", "methylation_clean.rds"))
+merged_clinical_expression <- read_rds(here("data", "interim", "merged_clinical_expression.rds"))
+merged_clinical_methylation <- read_rds(here("data", "interim", "merged_clinical_methylation.rds"))
+merged_clinical_multiomic <- read_rds(here("data", "interim", "merged_clinical_multiomic.rds"))
+```
+
+```{r}
+#--------------------------------------------------
+# 2. Cohort sizes
+#--------------------------------------------------
+
+cohort_summary <- tibble(
+  cohort = c("clinical_master", "expression_only", "methylation_only", "multiomic"),
+  n_rows = c(
+    nrow(clinical_master),
+    nrow(merged_clinical_expression),
+    nrow(merged_clinical_methylation),
+    nrow(merged_clinical_multiomic)
+  )
+)
+
+cohort_summary
+```
+
+```{r}
+#--------------------------------------------------
+# 3. Outcome balance
+#--------------------------------------------------
+
+merged_clinical_expression %>%
+  count(survival_500, .drop = FALSE)
+
+merged_clinical_methylation %>%
+  count(survival_500, .drop = FALSE)
+
+merged_clinical_multiomic %>%
+  count(survival_500, .drop = FALSE)
+```
+
+```{r}
+#--------------------------------------------------
+# 4. Basic clinical missingness
+#--------------------------------------------------
+
+clinical_master %>%
+  summarise(
+    missing_vital_status = mean(is.na(vital_status)),
+    missing_days_to_death = mean(is.na(days_to_death)),
+    missing_days_to_follow_up = mean(is.na(days_to_follow_up)),
+    missing_primary_diagnosis = mean(is.na(primary_diagnosis)),
+    missing_smoking_status = mean(is.na(smoking_status)),
+    missing_asbestos_exposure = mean(is.na(asbestos_exposure_type))
+  )
+```
+
+```{r}
+#--------------------------------------------------
+# 5. Expression variance summary
+#--------------------------------------------------
+
+expr_feature_cols <- setdiff(
+  names(expr_t),
+  c("sample_submitter_id", "case_submitter_id")
+)
+
+expr_var <- expr_t %>%
+  summarise(across(all_of(expr_feature_cols), var, na.rm = TRUE)) %>%
+  pivot_longer(everything(), names_to = "gene", values_to = "variance")
+
+summary(expr_var$variance)
+sum(expr_var$variance == 0, na.rm = TRUE)
+```
+
+```{r}
+#--------------------------------------------------
+# 6. Expression PCA
+#--------------------------------------------------
+
+top_expr_genes <- expr_var %>%
+  arrange(desc(variance)) %>%
+  slice_head(n = 1000) %>%
+  pull(gene)
+
+expr_pca_input <- expr_t %>%
+  select(all_of(top_expr_genes)) %>%
+  as.data.frame()
+
+expr_pca <- prcomp(expr_pca_input, center = TRUE, scale. = TRUE)
+
+expr_pca_df <- as_tibble(expr_pca$x[, 1:2]) %>%
+  bind_cols(expr_t %>% select(sample_submitter_id, case_submitter_id)) %>%
+  left_join(
+    clinical_master %>% select(case_submitter_id, survival_500),
+    by = "case_submitter_id"
+  )
+
+ggplot(expr_pca_df, aes(x = PC1, y = PC2, color = survival_500)) +
+  geom_point(size = 2) +
+  labs(title = "Expression PCA")
+```
+
+```{r}
+#--------------------------------------------------
+# 7. Methylation variance summary
+#--------------------------------------------------
+
+meth_feature_cols <- setdiff(
+  names(meth_t),
+  c("sample_submitter_id", "case_submitter_id")
+)
+
+meth_var <- meth_t %>%
+  summarise(across(all_of(meth_feature_cols), var, na.rm = TRUE)) %>%
+  pivot_longer(everything(), names_to = "probe", values_to = "variance")
+
+summary(meth_var$variance)
+sum(meth_var$variance == 0, na.rm = TRUE)
+```
+
+```{r}
+#--------------------------------------------------
+# 8. Methylation PCA
+#--------------------------------------------------
+
+#--------------------------------------------------
+# 8. Methylation PCA
+#--------------------------------------------------
+
+meth_var_clean <- meth_var %>%
+  filter(is.finite(variance), !is.na(variance), variance > 0)
+
+top_meth_probes <- meth_var_clean %>%
+  arrange(desc(variance)) %>%
+  slice_head(n = 1000) %>%
+  pull(probe)
+
+meth_pca_input <- meth_t %>%
+  select(all_of(top_meth_probes)) %>%
+  select(where(~ all(is.finite(.)) && !any(is.na(.)))) %>%
+  as.data.frame()
+
+dim(meth_pca_input)
+sum(!sapply(meth_t %>% select(all_of(top_meth_probes)), function(x) all(is.finite(x)) && !any(is.na(x))))
+
+meth_pca <- prcomp(meth_pca_input, center = TRUE, scale. = TRUE)
+
+meth_pca_df <- as_tibble(meth_pca$x[, 1:2]) %>%
+  bind_cols(meth_t %>% select(sample_submitter_id, case_submitter_id)) %>%
+  left_join(
+    clinical_master %>% select(case_submitter_id, survival_500),
+    by = "case_submitter_id"
+  )
+
+ggplot(meth_pca_df, aes(x = PC1, y = PC2, color = survival_500)) +
+  geom_point(size = 2) +
+  labs(title = "Methylation PCA")
+```
+

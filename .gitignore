@@ -6,3 +6,5 @@ renv/library/
 renv/python/
 *.html
 .DS_Store
+data/interim/*.rds
+data/processed/*.rds

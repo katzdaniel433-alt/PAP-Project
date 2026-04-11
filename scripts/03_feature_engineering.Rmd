@@ -1,0 +1,347 @@
+---
+title: "03_feature_engineering"
+output: html_document
+---
+
+```{r}
+#--------------------------------------------------
+# 1. Load packages and interim data
+#--------------------------------------------------
+
+library(tidyverse)
+library(here)
+
+merged_clinical_expression <- read_rds(here("data", "interim", "merged_clinical_expression.rds"))
+merged_clinical_methylation <- read_rds(here("data", "interim", "merged_clinical_methylation.rds"))
+merged_clinical_multiomic <- read_rds(here("data", "interim", "merged_clinical_multiomic.rds"))
+
+dir.create(here("data", "processed"), showWarnings = FALSE)
+
+```
+
+
+```{r}
+#--------------------------------------------------
+# 2. Helper functions
+#--------------------------------------------------
+
+prop_missing_vec <- function(x) {
+  mean(is.na(x))
+}
+
+variance_vec <- function(x) {
+  var(x, na.rm = TRUE)
+}
+```
+
+```{r}
+#--------------------------------------------------
+# 3. Keep only patients with known outcome
+#--------------------------------------------------
+
+expr_model <- merged_clinical_expression %>%
+  filter(!is.na(survival_500))
+
+meth_model <- merged_clinical_methylation %>%
+  filter(!is.na(survival_500))
+
+multi_model <- merged_clinical_multiomic %>%
+  filter(!is.na(survival_500))
+```
+
+```{r}
+#--------------------------------------------------
+# 4. Define metadata columns
+#--------------------------------------------------
+
+meta_cols <- c(
+  "sample_submitter_id",
+  "case_submitter_id",
+  "survival_500",
+  "survival_time_days",
+  "case_uuid",
+  "project_id",
+  "age_at_index",
+  "gender",
+  "race",
+  "ethnicity",
+  "vital_status",
+  "days_to_death",
+  "days_to_lost_to_followup",
+  "days_to_follow_up",
+  "days_to_progression",
+  "days_to_progression_free",
+  "primary_site",
+  "disease_type",
+  "prior_treatment",
+  "tumor_grade",
+  "primary_diagnosis",
+  "architectural_pattern",
+  "epithelioid_percent",
+  "necrosis_percent",
+  "sarcomatoid_percent",
+  "spindle_cell_percent",
+  "tumor_infiltrating_lymphocytes",
+  "tumor_infiltrating_macrophages",
+  "exposure_type",
+  "asbestos_exposure_type",
+  "smoking_status",
+  "smoking_frequency",
+  "occupation_type",
+  "pack_years_smoked",
+  "cigarettes_per_day",
+  "exposure_duration_years",
+  "occupation_duration_years",
+  "family_cancer_history",
+  "family_cancer_types",
+  "relatives_with_cancer_history_count"
+)
+
+meta_cols_expr <- intersect(meta_cols, names(expr_model))
+meta_cols_meth <- intersect(meta_cols, names(meth_model))
+meta_cols_multi <- intersect(meta_cols, names(multi_model))
+```
+
+```{r}
+#--------------------------------------------------
+# 5. Split metadata and feature columns
+#--------------------------------------------------
+
+expr_feature_cols <- setdiff(names(expr_model), meta_cols_expr)
+meth_feature_cols <- setdiff(names(meth_model), meta_cols_meth)
+multi_feature_cols <- setdiff(names(multi_model), meta_cols_multi)
+```
+
+```{r}
+#--------------------------------------------------
+# 6. Expression feature filtering
+#    - remove genes with any missing values
+#    - remove zero variance genes
+#    - keep top variable genes
+#--------------------------------------------------
+
+expr_missing <- expr_model %>%
+  summarise(across(all_of(expr_feature_cols), prop_missing_vec)) %>%
+  pivot_longer(everything(), names_to = "feature", values_to = "prop_missing")
+
+expr_keep_missing <- expr_missing %>%
+  filter(prop_missing == 0) %>%
+  pull(feature)
+
+expr_var <- expr_model %>%
+  select(all_of(expr_keep_missing)) %>%
+  summarise(across(everything(), variance_vec)) %>%
+  pivot_longer(everything(), names_to = "feature", values_to = "variance")
+
+expr_keep_var <- expr_var %>%
+  filter(is.finite(variance), !is.na(variance), variance > 0)
+
+n_expr_keep <- min(2000, nrow(expr_keep_var))
+
+top_expr_features <- expr_keep_var %>%
+  arrange(desc(variance)) %>%
+  slice_head(n = n_expr_keep) %>%
+  pull(feature)
+
+x_expression <- expr_model %>%
+  select(all_of(top_expr_features))
+
+y_expression <- expr_model$survival_500
+
+model_data_expression_only <- expr_model %>%
+  select(all_of(meta_cols_expr), all_of(top_expr_features))
+```
+
+```{r}
+#--------------------------------------------------
+# 7. Methylation feature filtering
+#    - remove probes with >10% missingness
+#    - remove zero/undefined variance probes
+#    - median-impute remaining missing values
+#    - keep top variable probes
+#--------------------------------------------------
+
+meth_missing <- meth_model %>%
+  summarise(across(all_of(meth_feature_cols), prop_missing_vec)) %>%
+  pivot_longer(everything(), names_to = "feature", values_to = "prop_missing")
+
+meth_keep_missing <- meth_missing %>%
+  filter(prop_missing <= 0.10) %>%
+  pull(feature)
+
+meth_var <- meth_model %>%
+  select(all_of(meth_keep_missing)) %>%
+  summarise(across(everything(), variance_vec)) %>%
+  pivot_longer(everything(), names_to = "feature", values_to = "variance")
+
+meth_keep_var <- meth_var %>%
+  filter(is.finite(variance), !is.na(variance), variance > 0)
+
+n_meth_keep <- min(2000, nrow(meth_keep_var))
+
+top_meth_features <- meth_keep_var %>%
+  arrange(desc(variance)) %>%
+  slice_head(n = n_meth_keep) %>%
+  pull(feature)
+
+x_methylation <- meth_model %>%
+  select(all_of(top_meth_features)) %>%
+  mutate(across(
+    everything(),
+    ~ ifelse(is.na(.x), median(.x, na.rm = TRUE), .x)
+  ))
+
+y_methylation <- meth_model$survival_500
+
+model_data_methylation_only <- bind_cols(
+  meth_model %>% select(all_of(meta_cols_meth)),
+  x_methylation
+)
+```
+
+```{r}
+#--------------------------------------------------
+# 8. Multiomic feature filtering
+#    - identify expression-like and methylation-like columns
+#    - apply same logic separately
+#    - combine retained features
+#--------------------------------------------------
+
+multi_expr_features <- multi_feature_cols[str_detect(multi_feature_cols, "^ENSG")]
+multi_meth_features <- multi_feature_cols[str_detect(multi_feature_cols, "^cg")]
+
+multi_expr_missing <- multi_model %>%
+  summarise(across(all_of(multi_expr_features), prop_missing_vec)) %>%
+  pivot_longer(everything(), names_to = "feature", values_to = "prop_missing")
+
+multi_expr_keep_missing <- multi_expr_missing %>%
+  filter(prop_missing == 0) %>%
+  pull(feature)
+
+multi_expr_var <- multi_model %>%
+  select(all_of(multi_expr_keep_missing)) %>%
+  summarise(across(everything(), variance_vec)) %>%
+  pivot_longer(everything(), names_to = "feature", values_to = "variance")
+
+multi_expr_keep_var <- multi_expr_var %>%
+  filter(is.finite(variance), !is.na(variance), variance > 0)
+
+n_multi_expr_keep <- min(1000, nrow(multi_expr_keep_var))
+
+top_multi_expr_features <- multi_expr_keep_var %>%
+  arrange(desc(variance)) %>%
+  slice_head(n = n_multi_expr_keep) %>%
+  pull(feature)
+
+multi_meth_missing <- multi_model %>%
+  summarise(across(all_of(multi_meth_features), prop_missing_vec)) %>%
+  pivot_longer(everything(), names_to = "feature", values_to = "prop_missing")
+
+multi_meth_keep_missing <- multi_meth_missing %>%
+  filter(prop_missing <= 0.10) %>%
+  pull(feature)
+
+multi_meth_var <- multi_model %>%
+  select(all_of(multi_meth_keep_missing)) %>%
+  summarise(across(everything(), variance_vec)) %>%
+  pivot_longer(everything(), names_to = "feature", values_to = "variance")
+
+multi_meth_keep_var <- multi_meth_var %>%
+  filter(is.finite(variance), !is.na(variance), variance > 0)
+
+n_multi_meth_keep <- min(1000, nrow(multi_meth_keep_var))
+
+top_multi_meth_features <- multi_meth_keep_var %>%
+  arrange(desc(variance)) %>%
+  slice_head(n = n_multi_meth_keep) %>%
+  pull(feature)
+
+x_multi_expr <- multi_model %>%
+  select(all_of(top_multi_expr_features))
+
+x_multi_meth <- multi_model %>%
+  select(all_of(top_multi_meth_features)) %>%
+  mutate(across(
+    everything(),
+    ~ ifelse(is.na(.x), median(.x, na.rm = TRUE), .x)
+  ))
+
+x_multiomic <- bind_cols(x_multi_expr, x_multi_meth)
+
+y_multiomic <- multi_model$survival_500
+
+model_data_multiomic <- bind_cols(
+  multi_model %>% select(all_of(meta_cols_multi)),
+  x_multiomic
+)
+```
+
+```{r}
+#--------------------------------------------------
+# 9. Save processed datasets
+#--------------------------------------------------
+
+write_rds(
+  model_data_expression_only,
+  here("data", "processed", "model_data_expression_only.rds")
+)
+
+write_rds(
+  model_data_methylation_only,
+  here("data", "processed", "model_data_methylation_only.rds")
+)
+
+write_rds(
+  model_data_multiomic,
+  here("data", "processed", "model_data_multiomic.rds")
+)
+
+write_rds(
+  x_expression,
+  here("data", "processed", "x_expression.rds")
+)
+
+write_rds(
+  x_methylation,
+  here("data", "processed", "x_methylation.rds")
+)
+
+write_rds(
+  x_multiomic,
+  here("data", "processed", "x_multiomic.rds")
+)
+
+write_rds(
+  y_expression,
+  here("data", "processed", "y_expression.rds")
+)
+
+write_rds(
+  y_methylation,
+  here("data", "processed", "y_methylation.rds")
+)
+
+write_rds(
+  y_multiomic,
+  here("data", "processed", "y_multiomic.rds")
+)
+```
+
+```{r}
+#--------------------------------------------------
+# 11. Final checks
+#--------------------------------------------------
+
+dim(model_data_expression_only)
+dim(model_data_methylation_only)
+dim(model_data_multiomic)
+
+dim(x_expression)
+dim(x_methylation)
+dim(x_multiomic)
+
+table(y_expression)
+table(y_methylation)
+table(y_multiomic)
+```
+

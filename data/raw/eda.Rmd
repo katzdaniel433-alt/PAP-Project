@@ -6,6 +6,10 @@ output: html_document
 ```{r}
 library(tidyverse)
 library(janitor)
+library(tibble)
+library(stringr)
+library(glmnet)
+library(caret)
 ```
 
 ```{r}
@@ -44,12 +48,14 @@ clinical_survival <- clinical_core %>%
       TRUE ~ NA_real_
     )
   )
+dim(clinical_survival)
 ```
 
 ```{r}
 clinical_survival %>%
   summarise(
-    n_cases = n(),
+    n_rows = n(),
+    n_unique_cases = n_distinct(case_id),
     n_with_days_to_death = sum(!is.na(days_to_death)),
     n_survived_500d_known = sum(!is.na(survived_500d)),
     n_survived_500d_yes = sum(survived_500d == 1, na.rm = TRUE),
@@ -57,7 +63,41 @@ clinical_survival %>%
   )
 ```
 
-# RNA-seq
+```{r}
+clinical_survival %>%
+  count(case_id, sort = TRUE) %>%
+  filter(n > 1)
+```
+
+
+```{r}
+clinical_unique <- clinical_survival %>%
+  group_by(case_id) %>%
+  summarise(
+    days_to_death = first(na.omit(days_to_death), default = NA_real_),
+    days_to_last_follow_up = first(na.omit(days_to_last_follow_up), default = NA_real_),
+    vital_status = first(na.omit(vital_status), default = NA_character_),
+    age_at_diagnosis = first(na.omit(age_at_diagnosis), default = NA_real_),
+    sex = first(na.omit(sex), default = NA_character_),
+    race = first(na.omit(race), default = NA_character_),
+    ethnicity = first(na.omit(ethnicity), default = NA_character_),
+    survived_500d = first(na.omit(survived_500d), default = NA_real_),
+    .groups = "drop"
+  )
+```
+
+```{r}
+clinical_unique %>%
+  summarise(
+    n_cases = n(),
+    n_unique_case_ids = n_distinct(case_id),
+    n_known_outcome = sum(!is.na(survived_500d)),
+    n_yes = sum(survived_500d == 1, na.rm = TRUE),
+    n_no = sum(survived_500d == 0, na.rm = TRUE)
+  )
+```
+
+# RNA-seq data
 
 ```{r}
 rna_dir <- "/Users/katz/Desktop/UNi Year 4/Semester 1/Predictive Analytics /Assessments/Project/PAP-Project/data/raw/"
@@ -66,6 +106,55 @@ rnaseq_raw <- read_csv(file.path(rna_dir, "gene_count_matrix_1pass_TCGA.csv"))
 
 dim(rnaseq_raw)
 names(rnaseq_raw)[1:10]
+```
+
+
+```{r}
+names(rnaseq_raw)[1]
+sum(duplicated(rnaseq_raw[[1]]))
+```
+
+```{r}
+rna_mat <- rnaseq_raw %>%
+  distinct(gene_id, .keep_all = TRUE) %>%
+  column_to_rownames("gene_id") %>%
+  as.matrix()
+
+dim(rna_mat)
+```
+
+```{r}
+rna_t <- t(rna_mat)
+
+dim(rna_t)
+```
+
+```{r}
+rna_df <- as.data.frame(rna_t) %>%
+  rownames_to_column("sample_id") %>%
+  as_tibble() %>%
+  mutate(
+    case_id = str_sub(sample_id, 1, 12)
+  )
+```
+
+```{r}
+dim(rna_df)
+
+rna_df %>%
+  select(sample_id, case_id) %>%
+  slice_head(n = 10)
+```
+
+# Join RNA with clinical data
+
+```{r}
+rna_mat <- rnaseq_raw %>%
+  distinct(gene_id, .keep_all = TRUE) %>%
+  column_to_rownames("gene_id") %>%
+  as.matrix()
+
+dim(rna_mat)
 ```
 
 ```{r}
@@ -78,15 +167,37 @@ rna_samples %>% slice_head(n = 10)
 ```
 
 ```{r}
-clinical_cases <- clinical_survival %>%
-  distinct(case_id)
-
-rna_case_overlap <- rna_samples %>%
-  semi_join(clinical_cases, by = "case_id")
-
-nrow(rna_samples)
-nrow(rna_case_overlap)
+rna_clinical <- rna_df %>%
+  inner_join(
+    clinical_unique %>%
+      select(case_id, days_to_death, days_to_last_follow_up, vital_status, survived_500d),
+    by = "case_id"
+  )
 ```
+
+```{r}
+rna_clinical %>%
+  summarise(
+    n_rows = n(),
+    n_cases = n_distinct(case_id),
+    n_known_outcome = sum(!is.na(survived_500d)),
+    n_yes = sum(survived_500d == 1, na.rm = TRUE),
+    n_no = sum(survived_500d == 0, na.rm = TRUE)
+  )
+```
+
+```{r}
+rna_model <- rna_clinical %>%
+  filter(!is.na(survived_500d))
+```
+
+```{r}
+dim(rna_model)
+
+rna_model %>%
+  count(survived_500d)
+```
+
 
 # Methylation sample sheet
 
@@ -108,7 +219,487 @@ meth_map <- meth_sheet %>%
     case_id = `Case ID`
   ) %>%
   distinct()
+```
 
+```{r}
 meth_map %>% slice_head(n = 10)
+```
+
+```{r}
+gene_counts <- rna_model %>%
+  select(-sample_id, -case_id, -days_to_death, -days_to_last_follow_up, -vital_status, -survived_500d)
+```
+
+```{r}
+dim(gene_counts)
+```
+
+```{r}
+min_samples <- ceiling(0.10 * nrow(gene_counts))
+
+keep_genes <- colSums(gene_counts >= 10, na.rm = TRUE) >= min_samples
+
+table(keep_genes)
+
+gene_counts_filt <- gene_counts[, keep_genes]
+
+dim(gene_counts_filt)
+```
+
+```{r}
+gene_counts_log <- log2(gene_counts_filt + 1)
+
+dim(gene_counts_log)
+```
+
+```{r}
+rna_model_filt <- bind_cols(
+  rna_model %>%
+    select(sample_id, case_id, days_to_death, days_to_last_follow_up, vital_status, survived_500d),
+  gene_counts_log
+)
+
+dim(rna_model_filt)
+```
+
+```{r}
+gene_var <- apply(gene_counts_log, 2, var, na.rm = TRUE)
+
+summary(gene_var)
+```
+
+```{r}
+top_n <- 2000
+
+top_genes <- names(sort(gene_var, decreasing = TRUE))[1:top_n]
+
+gene_counts_top <- gene_counts_log[, top_genes]
+
+dim(gene_counts_top)
+```
+
+```{r}
+rna_model_top <- bind_cols(
+  rna_model %>%
+    select(sample_id, case_id, days_to_death, days_to_last_follow_up, vital_status, survived_500d),
+  gene_counts_top
+)
+
+dim(rna_model_top)
+```
+
+```{r}
+x_rna <- rna_model_top %>%
+  select(-sample_id, -case_id, -days_to_death, -days_to_last_follow_up, -vital_status, -survived_500d) %>%
+  as.matrix()
+
+y <- factor(rna_model_top$survived_500d, levels = c(0, 1))
+```
+
+```{r}
+dim(x_rna)
+table(y)
+```
+
+```{r}
+set.seed(123)
+
+ctrl <- trainControl(
+  method = "repeatedcv",
+  number = 5,
+  repeats = 5,
+  classProbs = TRUE,
+  summaryFunction = twoClassSummary,
+  savePredictions = "final"
+)
+```
+
+```{r}
+y_factor <- factor(ifelse(rna_model_top$survived_500d == 1, "Yes", "No"),
+                   levels = c("No", "Yes"))
+```
+
+```{r}
+set.seed(123)
+
+lasso_fit <- train(
+  x = x_rna,
+  y = y_factor,
+  method = "glmnet",
+  family = "binomial",
+  metric = "ROC",
+  trControl = ctrl,
+  tuneGrid = expand.grid(
+    alpha = 1,
+    lambda = 10^seq(-3, 1, length.out = 50)
+  )
+)
+```
+
+```{r}
+lasso_fit
+plot(lasso_fit)
+```
+
+```{r}
+lasso_fit$bestTune
+max(lasso_fit$results$ROC)
+```
+
+```{r}
+lasso_fit$results %>%
+  arrange(desc(ROC)) %>%
+  slice_head(n = 10)
+```
+
+```{r}
+best_lambda <- lasso_fit$bestTune$lambda
+
+coef_mat <- coef(lasso_fit$finalModel, s = best_lambda)
+
+selected_genes <- rownames(coef_mat)[as.vector(coef_mat != 0)]
+selected_genes <- selected_genes[!selected_genes %in% "(Intercept)"]
+
+length(selected_genes)
+head(selected_genes, 20)
+```
+
+```{r}
+set.seed(123)
+
+tune_grid_enet <- expand.grid(
+  alpha = seq(0.1, 1, by = 0.1),
+  lambda = 10^seq(-3, 1, length.out = 30)
+)
+
+enet_fit <- train(
+  x = x_rna,
+  y = y_factor,
+  method = "glmnet",
+  family = "binomial",
+  metric = "ROC",
+  trControl = ctrl,
+  tuneGrid = tune_grid_enet
+)
+```
+
+```{r}
+enet_fit
+enet_fit$bestTune
+max(enet_fit$results$ROC)
+
+enet_fit$results %>%
+  arrange(desc(ROC)) %>%
+  slice_head(n = 10)
+```
+
+```{r}
+best_alpha <- enet_fit$bestTune$alpha
+best_lambda <- enet_fit$bestTune$lambda
+
+coef_mat_enet <- coef(enet_fit$finalModel, s = best_lambda)
+
+selected_genes_enet <- rownames(coef_mat_enet)[as.vector(coef_mat_enet != 0)]
+selected_genes_enet <- selected_genes_enet[!selected_genes_enet %in% "(Intercept)"]
+
+length(selected_genes_enet)
+head(selected_genes_enet, 20)
+
+selected_genes
+```
+
+```{r}
+master_map <- clinical_unique %>%
+  select(case_id, days_to_death, days_to_last_follow_up, vital_status, survived_500d) %>%
+  left_join(
+    rna_df %>% select(case_id, rna_sample_id = sample_id),
+    by = "case_id"
+  ) %>%
+  left_join(
+    meth_map %>% select(case_id, meth_sample_id = sample_id, meth_file_name = file_name),
+    by = "case_id"
+  )
+```
+
+```{r}
+master_map %>%
+  summarise(
+    n_rows = n(),
+    n_cases = n_distinct(case_id),
+    n_with_outcome = sum(!is.na(survived_500d)),
+    n_with_rna = sum(!is.na(rna_sample_id)),
+    n_with_meth = sum(!is.na(meth_sample_id)),
+    n_with_rna_and_meth = sum(!is.na(rna_sample_id) & !is.na(meth_sample_id)),
+    n_with_all_three = sum(!is.na(survived_500d) & !is.na(rna_sample_id) & !is.na(meth_sample_id))
+  )
+```
+
+```{r}
+master_map %>%
+  filter(!is.na(survived_500d), !is.na(rna_sample_id), !is.na(meth_sample_id)) %>%
+  select(case_id, rna_sample_id, meth_sample_id, meth_file_name) %>%
+  slice_head(n = 10)
+```
+
+```{r}
+meth_test_cases <- master_map %>%
+  filter(!is.na(survived_500d), !is.na(meth_file_name)) %>%
+  slice_head(n = 3)
+
+meth_test_cases
+```
+
+```{r}
+meth_folder <- file.path(meth_dir, "MethylationData")
+```
+
+```{r}
+test_file_1 <- file.path(meth_folder, meth_test_cases$meth_file_name[1])
+
+meth_one <- read_tsv(
+  test_file_1,
+  col_names = FALSE,
+  show_col_types = FALSE
+)
+
+names(meth_one) <- c("probe_id", "beta_value")
+glimpse(meth_one)
+dim(meth_one)
+head(meth_one)
+```
+```{r}
+meth_test_list <- lapply(seq_len(nrow(meth_test_cases)), function(i) {
+  f <- meth_test_cases$meth_file_name[i]
+  
+  x <- read_tsv(
+    file.path(meth_folder, f),
+    col_names = FALSE,
+    show_col_types = FALSE
+  )
+  
+  names(x) <- c("probe_id", "beta_value")
+  
+  list(
+    file_name = f,
+    dim = dim(x),
+    head = head(x)
+  )
+})
+
+meth_test_list
+```
+
+```{r}
+meth_complete_map <- master_map %>%
+  filter(!is.na(survived_500d), !is.na(rna_sample_id), !is.na(meth_file_name)) %>%
+  select(case_id, meth_sample_id, meth_file_name, survived_500d)
+
+dim(meth_complete_map)
+meth_complete_map %>% slice_head(n = 10)
+```
+
+```{r}
+read_meth_file <- function(file_name, case_id, meth_folder) {
+  x <- read_tsv(
+    file.path(meth_folder, file_name),
+    col_names = FALSE,
+    show_col_types = FALSE
+  )
+  
+  names(x) <- c("probe_id", case_id)
+  x
+}
+```
+
+```{r}
+meth_list <- lapply(seq_len(nrow(meth_complete_map)), function(i) {
+  read_meth_file(
+    file_name = meth_complete_map$meth_file_name[i],
+    case_id = meth_complete_map$case_id[i],
+    meth_folder = meth_folder
+  )
+})
+```
+
+```{r}
+library(purrr)
+
+meth_wide <- reduce(meth_list, full_join, by = "probe_id")
+```
+
+```{r}
+dim(meth_wide)
+meth_wide %>% slice_head(n = 5)
+```
+
+```{r}
+meth_mat <- meth_wide %>%
+  column_to_rownames("probe_id") %>%
+  as.matrix()
+
+meth_t <- t(meth_mat)
+
+dim(meth_t)
+```
+
+```{r}
+meth_df <- as.data.frame(meth_t) %>%
+  rownames_to_column("case_id") %>%
+  as_tibble()
+```
+
+```{r}
+dim(meth_df)
+meth_df %>% select(case_id) %>% slice_head(n = 10)
+```
+
+```{r}
+master_complete <- meth_complete_map %>%
+  select(case_id, survived_500d)
+```
+
+```{r}
+meth_model <- master_complete %>%
+  inner_join(meth_df, by = "case_id")
+```
+
+```{r}
+dim(meth_model)
+
+meth_model %>%
+  count(survived_500d)
+```
+
+```{r}
+meth_values <- meth_model %>%
+  select(-case_id, -survived_500d)
+```
+
+```{r}
+probe_keep_na <- colMeans(!is.na(meth_values)) >= 0.90
+
+table(probe_keep_na)
+
+meth_values_filt <- meth_values[, probe_keep_na]
+
+dim(meth_values_filt)
+```
+```{r}
+meth_mat_filt <- as.matrix(meth_values_filt)
+
+meth_var <- apply(meth_mat_filt, 2, var, na.rm = TRUE)
+
+top_n_meth <- 2000
+top_meth_probes <- names(sort(meth_var, decreasing = TRUE))[1:top_n_meth]
+
+meth_top_mat <- meth_mat_filt[, top_meth_probes, drop = FALSE]
+```
+
+```{r}
+col_medians_top <- apply(meth_top_mat, 2, median, na.rm = TRUE)
+
+for (j in seq_len(ncol(meth_top_mat))) {
+  miss <- is.na(meth_top_mat[, j])
+  if (any(miss)) {
+    meth_top_mat[miss, j] <- col_medians_top[j]
+  }
+}
+```
+
+```{r}
+meth_top <- as.data.frame(meth_top_mat)
+dim(meth_top)
+```
+
+```{r}
+meth_model_top <- bind_cols(
+  meth_model %>% select(case_id, survived_500d),
+  as_tibble(meth_top)
+)
+
+dim(meth_model_top)
+```
+
+```{r}
+meth_model_top <- meth_model_top %>%
+  rename_with(~ paste0("meth_", .x), -c(case_id, survived_500d))
+```
+
+```{r}
+rna_model_top2 <- rna_model_top %>%
+  rename_with(
+    ~ paste0("rna_", .x),
+    -c(sample_id, case_id, days_to_death, days_to_last_follow_up, vital_status, survived_500d)
+  )
+```
+
+```{r}
+master_omics <- rna_model_top2 %>%
+  select(case_id, survived_500d, starts_with("rna_")) %>%
+  inner_join(
+    meth_model_top %>%
+      select(case_id, starts_with("meth_")),
+    by = "case_id"
+  )
+```
+
+```{r}
+dim(master_omics)
+
+master_omics %>%
+  count(survived_500d)
+```
+
+```{r}
+x_multi <- master_omics %>%
+  select(-case_id, -survived_500d) %>%
+  as.matrix()
+
+y_multi <- factor(ifelse(master_omics$survived_500d == 1, "Yes", "No"),
+                  levels = c("No", "Yes"))
+
+dim(x_multi)
+table(y_multi)
+```
+
+```{r}
+set.seed(123)
+
+lasso_multi <- train(
+  x = x_multi,
+  y = y_multi,
+  method = "glmnet",
+  family = "binomial",
+  metric = "ROC",
+  trControl = ctrl,
+  tuneGrid = expand.grid(
+    alpha = 1,
+    lambda = 10^seq(-3, 1, length.out = 50)
+  )
+)
+```
+
+```{r}
+lasso_multi
+plot(lasso_multi)
+
+lasso_multi$bestTune
+max(lasso_multi$results$ROC)
+
+lasso_multi$results %>%
+  arrange(desc(ROC)) %>%
+  slice_head(n = 10)
+```
+
+```{r}
+best_lambda_multi <- lasso_multi$bestTune$lambda
+
+coef_mat_multi <- coef(lasso_multi$finalModel, s = best_lambda_multi)
+
+selected_features_multi <- rownames(coef_mat_multi)[as.vector(coef_mat_multi != 0)]
+selected_features_multi <- selected_features_multi[!selected_features_multi %in% "(Intercept)"]
+
+length(selected_features_multi)
+head(selected_features_multi, 20)
 ```
 
