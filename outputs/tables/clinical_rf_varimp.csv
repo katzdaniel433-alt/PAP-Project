@@ -1,0 +1,12 @@
+feature,Overall
+age_at_index,100
+"primary_diagnosis.Mesothelioma, biphasic, malignant",39.77347328724009
+smoking_status.Unknown,15.872597864074386
+asbestos_exposure_type.Unknown,14.005239496237165
+"primary_diagnosis.Epithelioid mesothelioma, malignant",12.783098132252618
+primary_diagnosis.Not Reported,11.679126363280256
+gender.male,11.481159321197966
+"primary_diagnosis.Mesothelioma, malignant",2.9469967879418384
+"primary_diagnosis.Squamous cell carcinoma, NOS",0.9731690614354666
+asbestos_exposure_type.Amosite,0.351447728853935
+asbestos_exposure_type.Crocidolite,0

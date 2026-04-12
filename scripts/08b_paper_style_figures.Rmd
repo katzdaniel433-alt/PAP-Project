@@ -1,0 +1,237 @@
+---
+title: "08b_paper_style_figures"
+output: html_document
+---
+
+```{r}
+#--------------------------------------------------
+# 1. Load packages and saved outputs
+#--------------------------------------------------
+
+library(tidyverse)
+library(here)
+library(readr)
+
+dir.create(here("outputs"), showWarnings = FALSE)
+dir.create(here("outputs", "figures"), showWarnings = FALSE)
+dir.create(here("outputs", "tables"), showWarnings = FALSE)
+
+expression_rf_varimp <- read_csv(
+  here("outputs", "tables", "expression_rf_top_features.csv"),
+  show_col_types = FALSE
+)
+
+methylation_rf_varimp <- read_csv(
+  here("outputs", "tables", "methylation_rf_top_features.csv"),
+  show_col_types = FALSE
+)
+
+clinical_rf_varimp <- read_csv(
+  here("outputs", "tables", "clinical_rf_varimp.csv"),
+  show_col_types = FALSE
+)
+
+final_model_comparison <- read_csv(
+  here("outputs", "tables", "final_model_comparison_extended.csv"),
+  show_col_types = FALSE
+)
+
+model_data_methylation_only <- read_rds(
+  here("data", "processed", "model_data_methylation_only.rds")
+)
+```
+
+```{r}
+#--------------------------------------------------
+# 2. Figure 1: faceted feature-importance plot
+#    Inspired by paper-style Gini importance panels
+#--------------------------------------------------
+
+expr_imp_plot <- expression_rf_varimp %>%
+  slice_head(n = 12) %>%
+  mutate(data_source = "Expression")
+
+meth_imp_plot <- methylation_rf_varimp %>%
+  slice_head(n = 12) %>%
+  mutate(data_source = "Methylation")
+
+clinical_imp_plot <- clinical_rf_varimp %>%
+  slice_head(n = 12) %>%
+  mutate(data_source = "Clinical")
+
+all_imp_plot <- bind_rows(
+  expr_imp_plot,
+  meth_imp_plot,
+  clinical_imp_plot
+) %>%
+  group_by(data_source) %>%
+  mutate(feature = factor(feature, levels = rev(feature))) %>%
+  ungroup()
+
+p_importance_facets <- ggplot(all_imp_plot, aes(x = Overall, y = feature)) +
+  geom_col() +
+  facet_wrap(~ data_source, scales = "free_y", nrow = 1) +
+  labs(
+    title = "Top random forest features across data sources",
+    x = "Variable importance",
+    y = NULL
+  )
+
+print(p_importance_facets)
+
+ggsave(
+  here("outputs", "figures", "faceted_feature_importance.png"),
+  plot = p_importance_facets,
+  width = 12,
+  height = 5
+)
+```
+
+```{r}
+#--------------------------------------------------
+# 3. Figure 2: benchmark metrics grouped bar chart
+#    Inspired by benchmark-metric panels from the paper
+#--------------------------------------------------
+
+best_metrics <- final_model_comparison %>%
+  filter(
+    (data_source == "Clinical" & model == "RandomForest") |
+      (data_source == "Expression" & model == "RandomForest") |
+      (data_source == "Methylation" & model == "RandomForest") |
+      (data_source == "Multiomic" & model == "RandomForest")
+  ) %>%
+  select(data_source, model, auc, Sens, Spec) %>%
+  rename(
+    AUC = auc,
+    Sensitivity = Sens,
+    Specificity = Spec
+  ) %>%
+  pivot_longer(
+    cols = c(AUC, Sensitivity, Specificity),
+    names_to = "metric",
+    values_to = "value"
+  )
+
+# add late integration as AUC-only
+late_integration_metric <- final_model_comparison %>%
+  filter(data_source == "Late integration") %>%
+  select(data_source, model, auc) %>%
+  rename(AUC = auc) %>%
+  pivot_longer(
+    cols = AUC,
+    names_to = "metric",
+    values_to = "value"
+  )
+
+best_metrics_plot <- bind_rows(
+  best_metrics,
+  late_integration_metric
+) %>%
+  mutate(
+    data_source = factor(
+      data_source,
+      levels = c("Clinical", "Expression", "Methylation", "Multiomic", "Late integration")
+    )
+  )
+
+p_benchmark_metrics <- ggplot(best_metrics_plot, aes(x = metric, y = value, fill = data_source)) +
+  geom_col(position = "dodge") +
+  labs(
+    title = "Benchmark metrics for the best-performing models",
+    x = NULL,
+    y = "Value",
+    fill = "Data source"
+  )
+
+print(p_benchmark_metrics)
+
+ggsave(
+  here("outputs", "figures", "benchmark_metrics_grouped.png"),
+  plot = p_benchmark_metrics,
+  width = 10,
+  height = 5
+)
+```
+
+```{r}
+#--------------------------------------------------
+# 4. Figure 3: methylation beta density curves
+#    Inspired by paper-style beta density figures
+#--------------------------------------------------
+
+set.seed(123)
+
+# sample a manageable set of methylation features
+sampled_beta_features <- methylation_rf_varimp %>%
+  slice_head(n = 50) %>%
+  pull(feature)
+
+meth_density_df <- model_data_methylation_only %>%
+  select(survival_500, all_of(sampled_beta_features)) %>%
+  pivot_longer(
+    cols = -survival_500,
+    names_to = "feature",
+    values_to = "beta_value"
+  ) %>%
+  filter(!is.na(beta_value))
+
+p_beta_density <- ggplot(meth_density_df, aes(x = beta_value, group = feature, color = survival_500)) +
+  geom_density(alpha = 0.25) +
+  labs(
+    title = "Density curves of top methylation beta values by survival group",
+    x = "Beta value",
+    y = "Density",
+    color = "Survived > 500 days"
+  )
+
+print(p_beta_density)
+
+ggsave(
+  here("outputs", "figures", "methylation_beta_density_curves.png"),
+  plot = p_beta_density,
+  width = 10,
+  height = 6
+)
+```
+
+```{r}
+#--------------------------------------------------
+# 5. Optional cleaner density version:
+#    average density by survival group only
+#--------------------------------------------------
+
+set.seed(123)
+
+density_sample_features <- sample(
+  methylation_rf_varimp$feature,
+  size = min(200, nrow(methylation_rf_varimp))
+)
+
+meth_density_simple <- model_data_methylation_only %>%
+  select(survival_500, all_of(density_sample_features)) %>%
+  pivot_longer(
+    cols = -survival_500,
+    names_to = "feature",
+    values_to = "beta_value"
+  ) %>%
+  filter(!is.na(beta_value))
+
+p_beta_density_simple <- ggplot(meth_density_simple, aes(x = beta_value, color = survival_500)) +
+  geom_density() +
+  labs(
+    title = "Methylation beta-value density by survival group",
+    x = "Beta value",
+    y = "Density",
+    color = "Survived > 500 days"
+  )
+
+print(p_beta_density_simple)
+
+ggsave(
+  here("outputs", "figures", "methylation_beta_density_simple.png"),
+  plot = p_beta_density_simple,
+  width = 8,
+  height = 5
+)
+```
+

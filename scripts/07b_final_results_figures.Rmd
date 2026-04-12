@@ -1,0 +1,282 @@
+---
+title: "07b_final_results_figures"
+output: html_document
+---
+
+```{r}
+#--------------------------------------------------
+# 1. Load packages and result tables
+#--------------------------------------------------
+
+library(tidyverse)
+library(here)
+
+expr_model_summary <- read_csv(
+  here("outputs", "tables", "expression_model_summary.csv"),
+  show_col_types = FALSE
+)
+
+expr_auc_summary <- read_csv(
+  here("outputs", "tables", "expression_auc_summary.csv"),
+  show_col_types = FALSE
+)
+
+meth_model_summary <- read_csv(
+  here("outputs", "tables", "methylation_model_summary.csv"),
+  show_col_types = FALSE
+)
+
+meth_auc_summary <- read_csv(
+  here("outputs", "tables", "methylation_auc_summary.csv"),
+  show_col_types = FALSE
+)
+
+multi_model_summary <- read_csv(
+  here("outputs", "tables", "multiomic_model_summary.csv"),
+  show_col_types = FALSE
+)
+
+multi_auc_summary <- read_csv(
+  here("outputs", "tables", "multiomic_auc_summary.csv"),
+  show_col_types = FALSE
+)
+
+clinical_model_summary <- read_csv(
+  here("outputs", "tables", "clinical_model_summary.csv"),
+  show_col_types = FALSE
+)
+
+clinical_auc_summary <- read_csv(
+  here("outputs", "tables", "clinical_auc_summary.csv"),
+  show_col_types = FALSE
+)
+
+late_integration_auc_summary <- read_csv(
+  here("outputs", "tables", "late_integration_auc_summary.csv"),
+  show_col_types = FALSE
+)
+
+dir.create(here("outputs"), showWarnings = FALSE)
+dir.create(here("outputs", "tables"), showWarnings = FALSE)
+dir.create(here("outputs", "figures"), showWarnings = FALSE)
+```
+
+```{r}
+#--------------------------------------------------
+# 2. Add source labels
+#--------------------------------------------------
+
+expr_model_summary <- expr_model_summary %>%
+  mutate(data_source = "Expression")
+
+meth_model_summary <- meth_model_summary %>%
+  mutate(data_source = "Methylation")
+
+multi_model_summary <- multi_model_summary %>%
+  mutate(data_source = "Multiomic")
+
+clinical_model_summary <- clinical_model_summary %>%
+  mutate(data_source = "Clinical")
+
+expr_auc_summary <- expr_auc_summary %>%
+  mutate(data_source = "Expression")
+
+meth_auc_summary <- meth_auc_summary %>%
+  mutate(data_source = "Methylation")
+
+multi_auc_summary <- multi_auc_summary %>%
+  mutate(data_source = "Multiomic")
+
+clinical_auc_summary <- clinical_auc_summary %>%
+  mutate(data_source = "Clinical")
+
+late_integration_auc_summary <- late_integration_auc_summary %>%
+  mutate(
+    data_source = "Late integration",
+    model = "RandomForest"
+  )
+```
+
+```{r}
+#--------------------------------------------------
+# 3. Combine model summaries
+#--------------------------------------------------
+
+all_model_summary <- bind_rows(
+  clinical_model_summary,
+  expr_model_summary,
+  meth_model_summary,
+  multi_model_summary
+)
+
+all_auc_summary <- bind_rows(
+  clinical_auc_summary,
+  expr_auc_summary,
+  meth_auc_summary,
+  multi_auc_summary,
+  late_integration_auc_summary
+)
+
+print(all_model_summary)
+print(all_auc_summary)
+
+write_csv(
+  all_model_summary,
+  here("outputs", "tables", "all_model_summary_extended.csv")
+)
+
+write_csv(
+  all_auc_summary,
+  here("outputs", "tables", "all_auc_summary_extended.csv")
+)
+```
+
+```{r}
+#--------------------------------------------------
+# 4. Create final comparison table
+#--------------------------------------------------
+
+final_comparison_extended <- all_model_summary %>%
+  select(data_source, model, ROC, Sens, Spec, ROCSD, SensSD, SpecSD) %>%
+  left_join(
+    all_auc_summary,
+    by = c("data_source", "model")
+  ) %>%
+  distinct() %>%
+  bind_rows(
+    late_integration_auc_summary %>%
+      transmute(
+        data_source,
+        model,
+        ROC = NA_real_,
+        Sens = NA_real_,
+        Spec = NA_real_,
+        ROCSD = NA_real_,
+        SensSD = NA_real_,
+        SpecSD = NA_real_,
+        auc
+      )
+  ) %>%
+  arrange(desc(auc))
+
+print(final_comparison_extended)
+
+write_csv(
+  final_comparison_extended,
+  here("outputs", "tables", "final_model_comparison_extended.csv")
+)
+```
+
+```{r}
+#--------------------------------------------------
+# 5. Cleaner display table for report
+#--------------------------------------------------
+
+report_table <- final_comparison_extended %>%
+  mutate(
+    ROC = round(ROC, 3),
+    Sens = round(Sens, 3),
+    Spec = round(Spec, 3),
+    auc = round(auc, 3)
+  ) %>%
+  select(
+    data_source,
+    model,
+    auc,
+    ROC,
+    Sens,
+    Spec
+  )
+
+print(report_table)
+
+write_csv(
+  report_table,
+  here("outputs", "tables", "report_model_table.csv")
+)
+```
+
+```{r}
+#--------------------------------------------------
+# 6. Set display order for plotting
+#--------------------------------------------------
+
+all_auc_summary <- all_auc_summary %>%
+  mutate(
+    data_source = factor(
+      data_source,
+      levels = c("Clinical", "Expression", "Methylation", "Multiomic", "Late integration")
+    )
+  )
+```
+
+```{r}
+#--------------------------------------------------
+# 7. AUC comparison bar chart
+#--------------------------------------------------
+
+p_auc <- all_auc_summary %>%
+  ggplot(aes(x = data_source, y = auc, fill = model)) +
+  geom_col(position = "dodge") +
+  labs(
+    title = "Cross-validated AUC by data source and model",
+    x = "Data source",
+    y = "AUC"
+  )
+
+print(p_auc)
+
+ggsave(
+  here("outputs", "figures", "auc_comparison_extended.png"),
+  plot = p_auc,
+  width = 9,
+  height = 5
+)
+```
+
+```{r}
+#--------------------------------------------------
+# 8. Best-model-only plot
+#--------------------------------------------------
+
+best_models <- all_auc_summary %>%
+  group_by(data_source) %>%
+  slice_max(order_by = auc, n = 1, with_ties = FALSE) %>%
+  ungroup()
+
+p_best_auc <- best_models %>%
+  ggplot(aes(x = data_source, y = auc, fill = data_source)) +
+  geom_col() +
+  labs(
+    title = "Best AUC achieved within each data source",
+    x = "Data source",
+    y = "AUC"
+  ) +
+  guides(fill = "none")
+
+print(p_best_auc)
+
+ggsave(
+  here("outputs", "figures", "best_auc_by_data_source.png"),
+  plot = p_best_auc,
+  width = 8,
+  height = 5
+)
+```
+
+```{r}
+#--------------------------------------------------
+# 9. Best overall model summary
+#--------------------------------------------------
+
+best_overall <- final_comparison_extended %>%
+  slice_max(order_by = auc, n = 1, with_ties = TRUE)
+
+print(best_overall)
+
+write_csv(
+  best_overall,
+  here("outputs", "tables", "best_overall_models.csv")
+)
+```
+
