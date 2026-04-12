@@ -1,0 +1,127 @@
+---
+title: "07_evaluate_compare"
+output: html_document
+---
+
+```{r}
+#--------------------------------------------------
+# 1. Load packages and saved result tables
+#--------------------------------------------------
+
+library(tidyverse)
+library(here)
+
+expr_model_summary <- read_csv(here("outputs", "tables", "expression_model_summary.csv"), show_col_types = FALSE)
+expr_auc_summary <- read_csv(here("outputs", "tables", "expression_auc_summary.csv"), show_col_types = FALSE)
+
+meth_model_summary <- read_csv(here("outputs", "tables", "methylation_model_summary.csv"), show_col_types = FALSE)
+meth_auc_summary <- read_csv(here("outputs", "tables", "methylation_auc_summary.csv"), show_col_types = FALSE)
+
+multi_model_summary <- read_csv(here("outputs", "tables", "multiomic_model_summary.csv"), show_col_types = FALSE)
+multi_auc_summary <- read_csv(here("outputs", "tables", "multiomic_auc_summary.csv"), show_col_types = FALSE)
+
+dir.create(here("outputs"), showWarnings = FALSE)
+dir.create(here("outputs", "tables"), showWarnings = FALSE)
+dir.create(here("outputs", "figures"), showWarnings = FALSE)
+```
+
+```{r}
+#--------------------------------------------------
+# 2. Add data source labels
+#--------------------------------------------------
+
+expr_model_summary <- expr_model_summary %>%
+  mutate(data_source = "Expression")
+
+meth_model_summary <- meth_model_summary %>%
+  mutate(data_source = "Methylation")
+
+multi_model_summary <- multi_model_summary %>%
+  mutate(data_source = "Multiomic")
+
+expr_auc_summary <- expr_auc_summary %>%
+  mutate(data_source = "Expression")
+
+meth_auc_summary <- meth_auc_summary %>%
+  mutate(data_source = "Methylation")
+
+multi_auc_summary <- multi_auc_summary %>%
+  mutate(data_source = "Multiomic")
+```
+
+```{r}
+#--------------------------------------------------
+# 3. Combine model summaries
+#--------------------------------------------------
+
+all_model_summary <- bind_rows(
+  expr_model_summary,
+  meth_model_summary,
+  multi_model_summary
+)
+
+all_auc_summary <- bind_rows(
+  expr_auc_summary,
+  meth_auc_summary,
+  multi_auc_summary
+)
+
+print(all_model_summary)
+print(all_auc_summary)
+
+write_csv(
+  all_model_summary,
+  here("outputs", "tables", "all_model_summary.csv")
+)
+
+write_csv(
+  all_auc_summary,
+  here("outputs", "tables", "all_auc_summary.csv")
+)
+```
+
+```{r}
+#--------------------------------------------------
+# 4. Create final comparison table
+#--------------------------------------------------
+
+final_comparison <- all_model_summary %>%
+  select(data_source, model, ROC, Sens, Spec, ROCSD, SensSD, SpecSD) %>%
+  left_join(
+    all_auc_summary,
+    by = c("data_source", "model")
+  ) %>%
+  arrange(desc(auc))
+
+print(final_comparison)
+
+write_csv(
+  final_comparison,
+  here("outputs", "tables", "final_model_comparison.csv")
+)
+```
+
+```{r}
+#--------------------------------------------------
+# 5. Plot AUC comparison
+#--------------------------------------------------
+
+p_auc <- all_auc_summary %>%
+  ggplot(aes(x = data_source, y = auc, fill = model)) +
+  geom_col(position = "dodge") +
+  labs(
+    title = "AUC comparison across data types and models",
+    x = "Data source",
+    y = "Cross-validated AUC"
+  )
+
+print(p_auc)
+
+ggsave(
+  here("outputs", "figures", "auc_comparison.png"),
+  plot = p_auc,
+  width = 8,
+  height = 5
+)
+```
+

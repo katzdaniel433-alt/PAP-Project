@@ -1,0 +1,7 @@
+model,auc,data_source
+ElasticNet,0.7172431077694237,Expression
+RandomForest,0.7217167919799501,Expression
+ElasticNet,0.7310378510378513,Methylation
+RandomForest,0.749230769230769,Methylation
+ElasticNet,0.7085714285714276,Multiomic
+RandomForest,0.7494235588972432,Multiomic
