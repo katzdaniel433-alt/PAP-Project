@@ -3,3 +3,247 @@ title: "04_model_expression"
 output: html_document
 ---
 
+```{r}
+#--------------------------------------------------
+# 1. Load packages and processed data
+#--------------------------------------------------
+
+library(tidyverse)
+library(here)
+library(caret)
+library(glmnet)
+library(pROC)
+library(ranger)
+x_expression <- read_rds(here("data", "processed", "x_expression.rds"))
+y_expression <- read_rds(here("data", "processed", "y_expression.rds"))
+
+dir.create(here("outputs"), showWarnings = FALSE)
+dir.create(here("outputs", "tables"), showWarnings = FALSE)
+dir.create(here("outputs", "model_objects"), showWarnings = FALSE)
+```
+
+
+```{r}
+#--------------------------------------------------
+# 2. Prepare modelling inputs
+#--------------------------------------------------
+
+x_expression <- x_expression %>%
+  mutate(across(everything(), as.numeric))
+
+y_expression <- factor(y_expression, levels = c("No", "Yes"))
+
+table(y_expression)
+```
+
+```{r}
+#--------------------------------------------------
+# 3. Train control
+#--------------------------------------------------
+
+set.seed(123)
+
+ctrl <- trainControl(
+  method = "repeatedcv",
+  number = 5,
+  repeats = 5,
+  classProbs = TRUE,
+  summaryFunction = twoClassSummary,
+  savePredictions = "final"
+)
+```
+
+```{r}
+#--------------------------------------------------
+# 4. Elastic net model
+#--------------------------------------------------
+
+enet_grid <- expand.grid(
+  alpha = c(0, 0.25, 0.5, 0.75, 1),
+  lambda = 10^seq(-3, 1, length.out = 20)
+)
+
+set.seed(123)
+
+model_enet_expr <- train(
+  x = x_expression,
+  y = y_expression,
+  method = "glmnet",
+  metric = "ROC",
+  trControl = ctrl,
+  tuneGrid = enet_grid
+)
+
+print(model_enet_expr)
+print(model_enet_expr$bestTune)
+```
+
+```{r}
+#--------------------------------------------------
+# 5. Random forest model
+#--------------------------------------------------
+
+set.seed(123)
+
+rf_grid <- expand.grid(
+  mtry = c(20, 50, 100, 150),
+  splitrule = "gini",
+  min.node.size = c(1, 5, 10)
+)
+
+model_rf_expr <- train(
+  x = x_expression,
+  y = y_expression,
+  method = "ranger",
+  metric = "ROC",
+  trControl = ctrl,
+  tuneGrid = rf_grid,
+  num.trees = 500,
+  importance = "impurity"
+)
+
+print(model_rf_expr)
+print(model_rf_expr$bestTune)
+```
+
+```{r}
+#--------------------------------------------------
+# 6. Compare cross-validated results
+#--------------------------------------------------
+
+expr_resamples <- resamples(
+  list(
+    ElasticNet = model_enet_expr,
+    RandomForest = model_rf_expr
+  )
+)
+
+summary(expr_resamples)
+
+expr_model_summary <- bind_rows(
+  model_enet_expr$results %>%
+    mutate(model = "ElasticNet") %>%
+    filter(
+      alpha == model_enet_expr$bestTune$alpha,
+      lambda == model_enet_expr$bestTune$lambda
+    ),
+  model_rf_expr$results %>%
+    mutate(model = "RandomForest") %>%
+    filter(
+      mtry == model_rf_expr$bestTune$mtry,
+      splitrule == model_rf_expr$bestTune$splitrule,
+      min.node.size == model_rf_expr$bestTune$min.node.size
+    )
+)
+
+print(expr_model_summary)
+
+write_csv(
+  expr_model_summary,
+  here("outputs", "tables", "expression_model_summary.csv")
+)
+```
+
+```{r}
+#--------------------------------------------------
+# 7. Extract saved predictions for best tuning parameters
+#--------------------------------------------------
+
+enet_pred <- model_enet_expr$pred %>%
+  filter(
+    alpha == model_enet_expr$bestTune$alpha,
+    lambda == model_enet_expr$bestTune$lambda
+  ) %>%
+  mutate(model = "ElasticNet")
+
+rf_pred <- model_rf_expr$pred %>%
+  filter(
+    mtry == model_rf_expr$bestTune$mtry
+  ) %>%
+  mutate(model = "RandomForest")
+
+expr_predictions <- bind_rows(enet_pred, rf_pred)
+
+write_csv(
+  expr_predictions,
+  here("outputs", "tables", "expression_cv_predictions.csv")
+)
+```
+
+```{r}
+#--------------------------------------------------
+# 8. Compute AUC from saved CV predictions
+#--------------------------------------------------
+
+auc_enet <- roc(
+  response = enet_pred$obs,
+  predictor = enet_pred$Yes,
+  levels = c("No", "Yes"),
+  direction = "<"
+)$auc
+
+auc_rf <- roc(
+  response = rf_pred$obs,
+  predictor = rf_pred$Yes,
+  levels = c("No", "Yes"),
+  direction = "<"
+)$auc
+
+expr_auc_summary <- tibble(
+  model = c("ElasticNet", "RandomForest"),
+  auc = c(as.numeric(auc_enet), as.numeric(auc_rf))
+)
+
+print(expr_auc_summary)
+
+write_csv(
+  expr_auc_summary,
+  here("outputs", "tables", "expression_auc_summary.csv")
+)
+```
+
+```{r}
+#--------------------------------------------------
+# 9. Variable importance
+#--------------------------------------------------
+
+enet_varimp <- varImp(model_enet_expr)$importance %>%
+  rownames_to_column("feature") %>%
+  arrange(desc(Overall)) %>%
+  slice_head(n = 20)
+
+rf_varimp <- varImp(model_rf_expr)$importance %>%
+  rownames_to_column("feature") %>%
+  arrange(desc(Overall)) %>%
+  slice_head(n = 20)
+
+print(enet_varimp)
+print(rf_varimp)
+
+write_csv(
+  enet_varimp,
+  here("outputs", "tables", "expression_enet_top_features.csv")
+)
+
+write_csv(
+  rf_varimp,
+  here("outputs", "tables", "expression_rf_top_features.csv")
+)
+```
+
+```{r}
+#--------------------------------------------------
+# 10. Save model objects
+#--------------------------------------------------
+
+saveRDS(
+  model_enet_expr,
+  here("outputs", "model_objects", "model_enet_expression.rds")
+)
+
+saveRDS(
+  model_rf_expr,
+  here("outputs", "model_objects", "model_rf_expression.rds")
+)
+```
+
