@@ -6,6 +6,7 @@ output: html_document
 ```{r}
 library(tidyverse)
 library(here)
+library(scales)
 ```
 
 
@@ -23,6 +24,28 @@ merged_clinical_multiomic <- read_rds(here("data", "interim", "merged_clinical_m
 ```
 
 ```{r}
+make_survival_500 <- function(df) {
+  df %>%
+    mutate(
+      survival_500 = case_when(
+        !is.na(days_to_death) & days_to_death <= 500 ~ "No",
+        !is.na(days_to_death) & days_to_death > 500 ~ "Yes",
+        is.na(days_to_death) & !is.na(days_to_follow_up) & days_to_follow_up > 500 ~ "Yes",
+        TRUE ~ NA_character_
+      ),
+      survival_500 = factor(survival_500, levels = c("No", "Yes"))
+    )
+}
+
+clinical_master <- make_survival_500(clinical_master)
+merged_clinical_expression <- make_survival_500(merged_clinical_expression)
+merged_clinical_methylation <- make_survival_500(merged_clinical_methylation)
+merged_clinical_multiomic <- make_survival_500(merged_clinical_multiomic)
+
+```
+
+
+```{r}
 #--------------------------------------------------
 # 2. Cohort sizes
 #--------------------------------------------------
@@ -34,16 +57,111 @@ cohort_summary <- tibble(
     nrow(merged_clinical_expression),
     nrow(merged_clinical_methylation),
     nrow(merged_clinical_multiomic)
+  ),
+  n_unique_cases = c(
+    n_distinct(clinical_master$case_submitter_id),
+    n_distinct(merged_clinical_expression$case_submitter_id),
+    n_distinct(merged_clinical_methylation$case_submitter_id),
+    n_distinct(merged_clinical_multiomic$case_submitter_id)
   )
 )
 
 cohort_summary
+
+write_csv(
+  cohort_summary,
+  here("outputs", "tables", "cohort_summary.csv")
+)
 ```
 
 ```{r}
-#--------------------------------------------------
-# 3. Outcome balance
-#--------------------------------------------------
+clinical_missing_summary <- clinical_master %>%
+  summarise(across(everything(), ~ mean(is.na(.)))) %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = "variable",
+    values_to = "missing_prop"
+  ) %>%
+  arrange(desc(missing_prop))
+
+clinical_missing_summary
+
+write_csv(
+  clinical_missing_summary,
+  here("outputs", "tables", "clinical_missing_summary.csv")
+)
+
+p_missing <- clinical_missing_summary %>%
+  ggplot(aes(x = reorder(variable, missing_prop), y = missing_prop)) +
+  geom_col() +
+  coord_flip() +
+  scale_y_continuous(labels = percent) +
+  labs(
+    title = "Missingness in compact clinical variables",
+    x = NULL,
+    y = "Proportion missing"
+  ) +
+  theme_minimal()
+
+print(p_missing)
+
+ggsave(
+  here("outputs", "figures", "clinical_missingness.png"),
+  plot = p_missing,
+  width = 8,
+  height = 5
+)
+```
+
+```{r}
+summary(clinical_master$age_at_index)
+
+clinical_master %>%
+  count(gender, .drop = FALSE)
+
+clinical_master %>%
+  count(race, .drop = FALSE)
+
+clinical_master %>%
+  count(ethnicity, .drop = FALSE)
+
+p_age <- clinical_master %>%
+  ggplot(aes(x = age_at_index)) +
+  geom_histogram(bins = 15) +
+  labs(
+    title = "Distribution of age at index",
+    x = "Age at index",
+    y = "Count"
+  ) +
+  theme_minimal()
+
+print(p_age)
+
+ggsave(
+  here("outputs", "figures", "age_distribution.png"),
+  plot = p_age,
+  width = 7,
+  height = 4
+)
+```
+
+```{r}
+survival_completeness <- clinical_master %>%
+  summarise(
+    n_patients = n(),
+    missing_days_to_death = sum(is.na(days_to_death)),
+    missing_days_to_follow_up = sum(is.na(days_to_follow_up)),
+    missing_both = sum(is.na(days_to_death) & is.na(days_to_follow_up)),
+    usable_survival_500 = sum(!is.na(survival_500)),
+    missing_survival_500 = sum(is.na(survival_500))
+  )
+
+survival_completeness
+
+write_csv(
+  survival_completeness,
+  here("outputs", "tables", "survival_completeness.csv")
+)
 
 merged_clinical_expression %>%
   count(survival_500, .drop = FALSE)
@@ -53,22 +171,46 @@ merged_clinical_methylation %>%
 
 merged_clinical_multiomic %>%
   count(survival_500, .drop = FALSE)
-```
 
-```{r}
-#--------------------------------------------------
-# 4. Basic clinical missingness
-#--------------------------------------------------
+outcome_balance <- bind_rows(
+  merged_clinical_expression %>%
+    count(survival_500, .drop = FALSE) %>%
+    mutate(cohort = "Expression"),
+  merged_clinical_methylation %>%
+    count(survival_500, .drop = FALSE) %>%
+    mutate(cohort = "Methylation"),
+  merged_clinical_multiomic %>%
+    count(survival_500, .drop = FALSE) %>%
+    mutate(cohort = "Multiomic")
+)
 
-clinical_master %>%
-  summarise(
-    missing_vital_status = mean(is.na(vital_status)),
-    missing_days_to_death = mean(is.na(days_to_death)),
-    missing_days_to_follow_up = mean(is.na(days_to_follow_up)),
-    missing_primary_diagnosis = mean(is.na(primary_diagnosis)),
-    missing_smoking_status = mean(is.na(smoking_status)),
-    missing_asbestos_exposure = mean(is.na(asbestos_exposure_type))
-  )
+outcome_balance
+
+write_csv(
+  outcome_balance,
+  here("outputs", "tables", "outcome_balance_by_cohort.csv")
+)
+
+p_outcome <- outcome_balance %>%
+  filter(!is.na(survival_500)) %>%
+  ggplot(aes(x = cohort, y = n, fill = survival_500)) +
+  geom_col(position = "dodge") +
+  labs(
+    title = "500-day survival class balance by cohort",
+    x = NULL,
+    y = "Count",
+    fill = "Survival > 500 days"
+  ) +
+  theme_minimal()
+
+print(p_outcome)
+
+ggsave(
+  here("outputs", "figures", "outcome_balance_by_cohort.png"),
+  plot = p_outcome,
+  width = 7,
+  height = 4
+)
 ```
 
 ```{r}
@@ -83,24 +225,60 @@ expr_feature_cols <- setdiff(
 
 expr_var <- expr_t %>%
   summarise(across(all_of(expr_feature_cols), var, na.rm = TRUE)) %>%
-  pivot_longer(everything(), names_to = "gene", values_to = "variance")
+  pivot_longer(
+    everything(),
+    names_to = "gene",
+    values_to = "variance"
+  )
 
 summary(expr_var$variance)
 sum(expr_var$variance == 0, na.rm = TRUE)
+
+write_csv(
+  expr_var,
+  here("outputs", "tables", "expression_variance_summary.csv")
+)
 ```
+
+```{r}
+meth_feature_cols <- setdiff(
+  names(meth_t),
+  c("sample_submitter_id", "case_submitter_id")
+)
+
+meth_var <- meth_t %>%
+  summarise(across(all_of(meth_feature_cols), var, na.rm = TRUE)) %>%
+  pivot_longer(
+    everything(),
+    names_to = "probe",
+    values_to = "variance"
+  )
+
+summary(meth_var$variance)
+sum(meth_var$variance == 0, na.rm = TRUE)
+
+write_csv(
+  meth_var,
+  here("outputs", "tables", "methylation_variance_summary.csv")
+)
+```
+
 
 ```{r}
 #--------------------------------------------------
 # 6. Expression PCA
 #--------------------------------------------------
 
-top_expr_genes <- expr_var %>%
+expr_var_clean <- expr_var %>%
+  filter(is.finite(variance), !is.na(variance), variance > 0)
+
+top_expr_features <- expr_var_clean %>%
   arrange(desc(variance)) %>%
   slice_head(n = 1000) %>%
   pull(gene)
 
 expr_pca_input <- expr_t %>%
-  select(all_of(top_expr_genes)) %>%
+  select(all_of(top_expr_features)) %>%
   as.data.frame()
 
 expr_pca <- prcomp(expr_pca_input, center = TRUE, scale. = TRUE)
@@ -112,34 +290,27 @@ expr_pca_df <- as_tibble(expr_pca$x[, 1:2]) %>%
     by = "case_submitter_id"
   )
 
-ggplot(expr_pca_df, aes(x = PC1, y = PC2, color = survival_500)) +
+p_expr_pca <- ggplot(expr_pca_df, aes(x = PC1, y = PC2, color = survival_500)) +
   geom_point(size = 2) +
-  labs(title = "Expression PCA")
-```
+  labs(
+    title = "Expression PCA",
+    x = "PC1",
+    y = "PC2",
+    color = "Survival > 500 days"
+  ) +
+  theme_minimal()
 
-```{r}
-#--------------------------------------------------
-# 7. Methylation variance summary
-#--------------------------------------------------
+print(p_expr_pca)
 
-meth_feature_cols <- setdiff(
-  names(meth_t),
-  c("sample_submitter_id", "case_submitter_id")
+ggsave(
+  here("outputs", "figures", "expression_pca.png"),
+  plot = p_expr_pca,
+  width = 7,
+  height = 5
 )
-
-meth_var <- meth_t %>%
-  summarise(across(all_of(meth_feature_cols), var, na.rm = TRUE)) %>%
-  pivot_longer(everything(), names_to = "probe", values_to = "variance")
-
-summary(meth_var$variance)
-sum(meth_var$variance == 0, na.rm = TRUE)
 ```
 
 ```{r}
-#--------------------------------------------------
-# 8. Methylation PCA
-#--------------------------------------------------
-
 #--------------------------------------------------
 # 8. Methylation PCA
 #--------------------------------------------------
@@ -147,18 +318,18 @@ sum(meth_var$variance == 0, na.rm = TRUE)
 meth_var_clean <- meth_var %>%
   filter(is.finite(variance), !is.na(variance), variance > 0)
 
-top_meth_probes <- meth_var_clean %>%
+top_meth_features <- meth_var_clean %>%
   arrange(desc(variance)) %>%
   slice_head(n = 1000) %>%
   pull(probe)
 
 meth_pca_input <- meth_t %>%
-  select(all_of(top_meth_probes)) %>%
-  select(where(~ all(is.finite(.)) && !any(is.na(.)))) %>%
+  select(all_of(top_meth_features)) %>%
+  mutate(across(
+    everything(),
+    ~ ifelse(is.na(.x) | !is.finite(.x), mean(.x[is.finite(.x)], na.rm = TRUE), .x)
+  )) %>%
   as.data.frame()
-
-dim(meth_pca_input)
-sum(!sapply(meth_t %>% select(all_of(top_meth_probes)), function(x) all(is.finite(x)) && !any(is.na(x))))
 
 meth_pca <- prcomp(meth_pca_input, center = TRUE, scale. = TRUE)
 
@@ -169,8 +340,23 @@ meth_pca_df <- as_tibble(meth_pca$x[, 1:2]) %>%
     by = "case_submitter_id"
   )
 
-ggplot(meth_pca_df, aes(x = PC1, y = PC2, color = survival_500)) +
+p_meth_pca <- ggplot(meth_pca_df, aes(x = PC1, y = PC2, color = survival_500)) +
   geom_point(size = 2) +
-  labs(title = "Methylation PCA")
+  labs(
+    title = "Methylation PCA",
+    x = "PC1",
+    y = "PC2",
+    color = "Survival > 500 days"
+  ) +
+  theme_minimal()
+
+print(p_meth_pca)
+
+ggsave(
+  here("outputs", "figures", "methylation_pca.png"),
+  plot = p_meth_pca,
+  width = 7,
+  height = 5
+)
 ```
 
