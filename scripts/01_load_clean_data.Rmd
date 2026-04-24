@@ -10,6 +10,7 @@ library(here)
 library(readr)
 library(stringr)
 library(tibble)
+library(scales)
 ```
 
 ```{r}
@@ -28,6 +29,11 @@ fix_missing <- function(df) {
           na_if("")
       )
     )
+}
+
+first_non_missing <- function(x) {
+  x <- x[!is.na(x) & x != ""]
+  if (length(x) == 0) NA else x[1]
 }
 ```
 
@@ -101,7 +107,8 @@ family <- family_raw %>%
   clean_names() %>%
   fix_missing()
 
-expr <- expr_raw 
+expr <- expr_raw %>% 
+  fix_missing()
 ```
 
 ```{r}
@@ -129,12 +136,8 @@ sample_manifest <- sample_sheet %>%
     specimen_type,
     preservation_method
   ) %>%
-  distinct()
-
-# quick flags
-sample_manifest <- sample_manifest %>%
+  distinct() %>%
   mutate(
-    has_methylation = data_category == "DNA Methylation",
     has_expression_file = str_detect(
       file_name,
       regex("rna|gene|count|star|htseq", ignore_case = TRUE)
@@ -157,13 +160,7 @@ clinical_core <- clinical %>%
     race = demographic_race,
     ethnicity = demographic_ethnicity,
     vital_status = demographic_vital_status,
-    days_to_death = suppressWarnings(as.numeric(demographic_days_to_death)),
-    days_to_lost_to_followup = suppressWarnings(as.numeric(cases_days_to_lost_to_followup)),
-    primary_site = cases_primary_site,
-    disease_type = cases_disease_type,
-    prior_treatment = diagnoses_prior_treatment,
-    tumor_grade = diagnoses_tumor_grade,
-    primary_diagnosis = diagnoses_primary_diagnosis
+    days_to_death = suppressWarnings(as.numeric(demographic_days_to_death))
   ) %>%
   group_by(case_submitter_id) %>%
   summarise(
@@ -175,27 +172,23 @@ clinical_core <- clinical %>%
     ethnicity = first(na.omit(ethnicity)),
     vital_status = first(na.omit(vital_status)),
     days_to_death = if (all(is.na(days_to_death))) NA_real_ else max(days_to_death, na.rm = TRUE),
-    days_to_lost_to_followup = if (all(is.na(days_to_lost_to_followup))) NA_real_ else max(days_to_lost_to_followup, na.rm = TRUE),
-    primary_site = first(na.omit(primary_site)),
-    disease_type = first(na.omit(disease_type)),
-    prior_treatment = first(na.omit(prior_treatment)),
-    tumor_grade = first(na.omit(tumor_grade)),
-    primary_diagnosis = first(na.omit(primary_diagnosis)),
     .groups = "drop"
   )
 
 followup_core <- followup %>%
+  filter(
+    str_detect(
+      follow_ups_timepoint_category,
+      regex("last|final|end", ignore_case = TRUE)
+    )
+  ) %>%
   transmute(
     case_submitter_id = cases_submitter_id,
-    days_to_follow_up = suppressWarnings(as.numeric(follow_ups_days_to_follow_up)),
-    days_to_progression = suppressWarnings(as.numeric(follow_ups_days_to_progression)),
-    days_to_progression_free = suppressWarnings(as.numeric(follow_ups_days_to_progression_free))
+    days_to_follow_up = suppressWarnings(as.numeric(follow_ups_days_to_follow_up))
   ) %>%
   group_by(case_submitter_id) %>%
   summarise(
     days_to_follow_up = if (all(is.na(days_to_follow_up))) NA_real_ else max(days_to_follow_up, na.rm = TRUE),
-    days_to_progression = if (all(is.na(days_to_progression))) NA_real_ else max(days_to_progression, na.rm = TRUE),
-    days_to_progression_free = if (all(is.na(days_to_progression_free))) NA_real_ else max(days_to_progression_free, na.rm = TRUE),
     .groups = "drop"
   )
 
@@ -280,8 +273,7 @@ family_core <- family %>%
 clinical_master <- clinical_core %>%
   left_join(followup_core, by = "case_submitter_id") %>%
   left_join(pathology_core, by = "case_submitter_id") %>%
-  left_join(exposure_core, by = "case_submitter_id") %>%
-  left_join(family_core, by = "case_submitter_id")
+  left_join(exposure_core, by = "case_submitter_id")
 ```
 
 ```{r}
@@ -291,16 +283,12 @@ clinical_master <- clinical_core %>%
 
 clinical_master <- clinical_master %>%
   mutate(
-    days_to_death = as.numeric(days_to_death),
-    days_to_follow_up = as.numeric(days_to_follow_up),
-    survival_time_days = coalesce(days_to_death, days_to_follow_up),
     survival_500 = case_when(
-      !is.na(days_to_death) & days_to_death > 500 ~ "Yes",
       !is.na(days_to_death) & days_to_death <= 500 ~ "No",
-      is.na(days_to_death) & !is.na(days_to_follow_up) & days_to_follow_up > 500 ~ "Yes",
+      !is.na(days_to_death) & days_to_death > 500 ~ "Yes",
+      is.na(days_to_death) & vital_status == "Alive" & !is.na(days_to_follow_up) & days_to_follow_up > 500 ~ "Yes",
       TRUE ~ NA_character_
-    ),
-    survival_500 = factor(survival_500, levels = c("No", "Yes"))
+    )
   )
 ```
 
@@ -375,7 +363,6 @@ length(intersect(clinical_master$case_submitter_id, expr_t$case_submitter_id))
 
 ```{r}
 table(clinical_master$survival_500, useNA = "ifany")
-summary(clinical_master$survival_time_days)
 ```
 
 ```{r}
@@ -406,12 +393,6 @@ merged_clinical_expression %>% count(case_submitter_id) %>% filter(n > 1)
 ```
 
 ```{r}
-clinical_master %>%
-  filter(is.na(survival_500)) %>%
-  select(case_submitter_id, vital_status, days_to_death, days_to_follow_up, survival_time_days)
-```
-
-```{r}
 setdiff(clinical_master$case_submitter_id, expr_t$case_submitter_id)
 setdiff(expr_t$case_submitter_id, clinical_master$case_submitter_id)
 ```
@@ -432,48 +413,51 @@ meth_files <- list.files(
 meth_lookup <- sample_sheet %>%
   filter(
     str_detect(data_category, regex("methyl", ignore_case = TRUE)) |
-    str_detect(data_type, regex("methyl", ignore_case = TRUE)) |
-    str_detect(file_name, regex("methyl", ignore_case = TRUE))
+      str_detect(data_type, regex("methyl", ignore_case = TRUE)) |
+      str_detect(file_name, regex("methyl", ignore_case = TRUE))
   ) %>%
   transmute(
     file_id,
     file_name,
+    file_name_stem = str_extract(file_name, "^[^.]+"),
     case_submitter_id = case_id,
     sample_submitter_id = sample_id
   ) %>%
   distinct()
-```
 
-```{r}
 read_meth_file <- function(path, meth_lookup) {
   file_base <- basename(path)
-  file_id_from_path <- str_extract(file_base, "^[^.]+")
+  file_stem_from_path <- str_extract(file_base, "^[^.]+")
   
   matched_row <- meth_lookup %>%
-    filter(file_id == file_id_from_path)
+    filter(file_name_stem == file_stem_from_path)
   
   if (nrow(matched_row) == 0) {
-    warning("No sample-sheet match found for file_id: ", file_id_from_path)
+    warning("No sample-sheet match found for file stem: ", file_stem_from_path)
     return(NULL)
   }
   
   sample_id <- matched_row$sample_submitter_id[1]
   
-  df <- read_tsv(path, show_col_types = FALSE) %>%
+  read_tsv(path, show_col_types = FALSE) %>%
     rename(
       probe_id = 1,
       !!sample_id := 2
     ) %>%
     mutate(!!sample_id := as.numeric(.data[[sample_id]]))
-  
-  df
 }
 ```
 
+
 ```{r}
 meth_list <- lapply(meth_files, read_meth_file, meth_lookup = meth_lookup)
-
 meth_list <- meth_list[!sapply(meth_list, is.null)]
+
+length(meth_list)
+
+if (length(meth_list) == 0) {
+  stop("All methylation files returned NULL. Check file_id matching.")
+}
 
 meth_wide <- reduce(meth_list, full_join, by = "probe_id")
 ```
@@ -573,4 +557,3 @@ length(intersect(expr_t$case_submitter_id, meth_t$case_submitter_id))
 setdiff(meth_t$case_submitter_id, expr_t$case_submitter_id)
 setdiff(expr_t$case_submitter_id, meth_t$case_submitter_id)
 ```
-

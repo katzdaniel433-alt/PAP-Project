@@ -1,0 +1,181 @@
+---
+title: "Setup"
+output: html_document
+---
+
+```{r}
+# =========================================================
+# ACTL4003 Final Report - Mesothelioma Survival Prediction
+# Section 1: Setup
+# =========================================================
+
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE
+)
+
+set.seed(4003)
+
+# Core packages
+library(tidyverse)
+library(janitor)
+library(readr)
+library(readxl)
+
+# Modelling
+library(caret)
+library(glmnet)
+library(ranger)
+library(pROC)
+
+# Utilities
+library(Matrix)
+library(scales)
+library(patchwork)
+library(gt)
+```
+
+```{r}
+# =========================================================
+# Section 2: Import data
+# =========================================================
+
+# Adjust paths if needed
+clinical <- read_tsv("/Users/katz/Desktop/UNi Year 4/Semester 1/Predictive Analytics /Assessments/Project/PAP-Project/data/raw/clinical.tsv", show_col_types = FALSE) %>% clean_names()
+exposure <- read_tsv("/Users/katz/Desktop/UNi Year 4/Semester 1/Predictive Analytics /Assessments/Project/PAP-Project/data/raw/exposure.tsv", show_col_types = FALSE) %>% clean_names()
+family_history <- read_tsv("/Users/katz/Desktop/UNi Year 4/Semester 1/Predictive Analytics /Assessments/Project/PAP-Project/data/raw/family_history.tsv", show_col_types = FALSE) %>% clean_names()
+follow_up <- read_tsv("/Users/katz/Desktop/UNi Year 4/Semester 1/Predictive Analytics /Assessments/Project/PAP-Project/data/raw/follow_up.tsv", show_col_types = FALSE) %>% clean_names()
+pathology_detail <- read_tsv("/Users/katz/Desktop/UNi Year 4/Semester 1/Predictive Analytics /Assessments/Project/PAP-Project/data/raw/pathology_detail.tsv", show_col_types = FALSE) %>% clean_names()
+sample_sheet <- read_tsv("/Users/katz/Desktop/UNi Year 4/Semester 1/Predictive Analytics /Assessments/Project/PAP-Project/data/raw/gdc_sample_sheet.2026-04-07.tsv", show_col_types = FALSE) %>% clean_names()
+
+expr_raw <- read_csv("/Users/katz/Desktop/UNi Year 4/Semester 1/Predictive Analytics /Assessments/Project/PAP-Project/data/raw/gene_count_matrix_1pass_TCGA.csv", show_col_types = FALSE)
+
+# ---------------------------------------------------------
+# Examine structure
+# ---------------------------------------------------------
+glimpse(clinical)
+glimpse(expr_raw)
+glimpse(sample_sheet)
+```
+
+```{r}
+# =========================================================
+# Expression matrix processing
+# Assumes first column contains gene IDs / gene names
+# and remaining columns are TCGA samples
+# =========================================================
+
+expr_df <- expr_raw
+
+# Rename first column to gene_id if needed
+names(expr_df)[1] <- "gene_id"
+
+# Remove duplicated genes if present
+expr_df <- expr_df %>%
+  distinct(gene_id, .keep_all = TRUE)
+
+# Convert to matrix with genes in rows, samples in columns
+expr_mat <- expr_df %>%
+  column_to_rownames("gene_id") %>%
+  as.matrix()
+
+# Make sure numeric
+storage.mode(expr_mat) <- "numeric"
+
+dim(expr_mat)
+expr_mat[1:5, 1:5]
+```
+
+```{r}
+# =========================================================
+# Construct binary survival outcome
+# =========================================================
+
+names(clinical)
+
+# Inspect likely survival-related fields
+surv_vars <- names(clinical)[str_detect(names(clinical), "days|death|follow|last|vital|submitter")]
+surv_vars
+
+# Create a working clinical table
+clinical_main <- clinical %>%
+  mutate(
+    cases_submitter_id = as.character(cases_submitter_id),
+    days_to_death = suppressWarnings(as.numeric(demographic_days_to_death)),
+    days_to_last_follow_up = suppressWarnings(as.numeric(diagnoses_days_to_last_follow_up)),
+    vital_status = demographic_vital_status
+  ) %>%
+  mutate(
+    overall_time = case_when(
+      !is.na(days_to_death) ~ days_to_death,
+      !is.na(days_to_last_follow_up) ~ days_to_last_follow_up,
+      TRUE ~ NA_real_
+    ),
+    survived_500d = case_when(
+      !is.na(overall_time) & overall_time > 500 ~ "Yes",
+      !is.na(overall_time) & overall_time <= 500 ~ "No",
+      TRUE ~ NA_character_
+    ),
+    survived_500d = factor(survived_500d, levels = c("No", "Yes"))
+  )
+
+table(clinical_main$survived_500d, useNA = "ifany")
+summary(clinical_main$overall_time)
+```
+
+```{r}
+# =========================================================
+# Expression sample IDs
+# =========================================================
+
+expr_sample_ids <- colnames(expr_mat)
+
+# TCGA style shortening to patient-level IDs if needed
+expr_patient_ids <- str_sub(expr_sample_ids, 1, 12)
+
+expr_meta <- tibble(
+  expr_sample_id = expr_sample_ids,
+  cases_submitter_id = expr_patient_ids
+)
+
+head(expr_meta)
+```
+
+```{r}
+# =========================================================
+# Merge clinical outcome with expression metadata
+# =========================================================
+
+expr_clin <- expr_meta %>%
+  left_join(
+    clinical_main %>%
+      select(cases_submitter_id, overall_time, survived_500d, vital_status),
+    by = "cases_submitter_id"
+  )
+
+table(expr_clin$survived_500d, useNA = "ifany")
+
+# Keep only samples with known 500-day survival outcome
+expr_clin_complete <- expr_clin %>%
+  filter(!is.na(survived_500d))
+
+length(unique(expr_clin_complete$expr_sample_id))
+table(expr_clin_complete$survived_500d)
+```
+
+```{r}
+# =========================================================
+# Restrict expression matrix to complete outcome cases
+# =========================================================
+
+expr_mat_model <- expr_mat[, expr_clin_complete$expr_sample_id, drop = FALSE]
+
+# transpose to samples x genes for modelling
+x_expr <- t(expr_mat_model) %>% as.data.frame()
+y_expr <- expr_clin_complete$survived_500d
+
+dim(x_expr)
+table(y_expr)
+```
+

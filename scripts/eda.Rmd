@@ -1,0 +1,112 @@
+---
+title: "eda"
+output: html_document
+---
+
+```{r}
+# =========================================================
+# EDA: response distribution
+# =========================================================
+
+expr_clin_complete %>%
+  count(survived_500d) %>%
+  ggplot(aes(x = survived_500d, y = n, fill = survived_500d)) +
+  geom_col(width = 0.7, show.legend = FALSE) +
+  geom_text(aes(label = n), vjust = -0.5) +
+  labs(
+    title = "Distribution of 500-day survival outcome",
+    x = "Survived more than 500 days",
+    y = "Number of patients"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+# =========================================================
+# EDA: missingness in clinical data
+# =========================================================
+
+clinical_missing <- clinical_main %>%
+  summarise(across(everything(), ~ mean(is.na(.)))) %>%
+  pivot_longer(cols = everything(), names_to = "variable", values_to = "missing_prop") %>%
+  arrange(desc(missing_prop))
+
+clinical_missing %>%
+  slice_head(n = 20) %>%
+  ggplot(aes(x = reorder(variable, missing_prop), y = missing_prop)) +
+  geom_col() +
+  coord_flip() +
+  scale_y_continuous(labels = percent_format()) +
+  labs(
+    title = "Top 20 clinical variables by missingness",
+    x = NULL,
+    y = "Missing proportion"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+# =========================================================
+# Filter low-count genes
+# Keep genes expressed at count >= 10 in at least 20% of samples
+# =========================================================
+
+keep_genes <- rowSums(expr_mat_model >= 10) >= ceiling(0.20 * ncol(expr_mat_model))
+expr_mat_filt <- expr_mat_model[keep_genes, , drop = FALSE]
+
+dim(expr_mat_model)
+dim(expr_mat_filt)
+```
+
+```{r}
+# =========================================================
+# Log-transform expression for downstream modelling
+# =========================================================
+
+expr_log <- log2(expr_mat_filt + 1)
+
+x_expr_log <- t(expr_log) %>% as.data.frame()
+
+dim(x_expr_log)
+summary(as.vector(as.matrix(x_expr_log[, 1:min(20, ncol(x_expr_log))])))
+```
+
+```{r}
+# =========================================================
+# Variance filter: keep top 2000 most variable genes
+# =========================================================
+
+gene_var <- apply(x_expr_log, 2, var, na.rm = TRUE)
+
+top_n <- min(2000, length(gene_var))
+top_genes <- names(sort(gene_var, decreasing = TRUE))[1:top_n]
+
+x_expr_top <- x_expr_log %>%
+  select(all_of(top_genes))
+
+dim(x_expr_top)
+```
+
+```{r}
+# =========================================================
+# PCA for visual exploration
+# =========================================================
+
+pca_expr <- prcomp(x_expr_top, center = TRUE, scale. = TRUE)
+
+pca_df <- as_tibble(pca_expr$x[, 1:2]) %>%
+  mutate(
+    survived_500d = y_expr
+  )
+
+ggplot(pca_df, aes(x = PC1, y = PC2, colour = survived_500d)) +
+  geom_point(size = 3, alpha = 0.8) +
+  labs(
+    title = "PCA of top-variance expression features",
+    x = "PC1",
+    y = "PC2",
+    colour = "500-day survival"
+  ) +
+  theme_minimal()
+```
+
