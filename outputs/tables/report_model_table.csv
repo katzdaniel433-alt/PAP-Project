@@ -1,10 +1,7 @@
 data_source,model,auc,ROC,Sens,Spec
 Multiomic,RandomForest,0.749,0.756,0.629,0.748
 Methylation,RandomForest,0.749,0.764,0.644,0.72
-Late integration,RandomForest,0.742,NA,NA,NA
 Methylation,ElasticNet,0.731,0.722,0.654,0.735
 Expression,RandomForest,0.722,0.737,0.63,0.696
 Expression,ElasticNet,0.717,0.746,0.556,0.753
 Multiomic,ElasticNet,0.709,0.721,0.656,0.641
-Clinical,RandomForest,0.629,0.648,0.479,0.762
-Clinical,ElasticNet,0.588,0.636,0.521,0.762

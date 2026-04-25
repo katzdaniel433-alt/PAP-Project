@@ -18,9 +18,6 @@ library(pROC)
 x_multiomic <- read_rds(here("data", "processed", "x_multiomic.rds"))
 y_multiomic <- read_rds(here("data", "processed", "y_multiomic.rds"))
 
-dir.create(here("outputs"), showWarnings = FALSE)
-dir.create(here("outputs", "tables"), showWarnings = FALSE)
-dir.create(here("outputs", "model_objects"), showWarnings = FALSE)
 ```
 
 ```{r}

@@ -20,9 +20,6 @@ meth_auc_summary <- read_csv(here("outputs", "tables", "methylation_auc_summary.
 multi_model_summary <- read_csv(here("outputs", "tables", "multiomic_model_summary.csv"), show_col_types = FALSE)
 multi_auc_summary <- read_csv(here("outputs", "tables", "multiomic_auc_summary.csv"), show_col_types = FALSE)
 
-dir.create(here("outputs"), showWarnings = FALSE)
-dir.create(here("outputs", "tables"), showWarnings = FALSE)
-dir.create(here("outputs", "figures"), showWarnings = FALSE)
 ```
 
 ```{r}
@@ -102,6 +99,25 @@ write_csv(
 ```
 
 ```{r}
+report_table <- final_comparison %>%
+  mutate(
+    ROC = round(ROC, 3),
+    Sens = round(Sens, 3),
+    Spec = round(Spec, 3),
+    auc = round(auc, 3)
+  ) %>%
+  select(data_source, model, auc, ROC, Sens, Spec)
+
+print(report_table)
+
+write_csv(
+  report_table,
+  here("outputs", "tables", "report_model_table.csv")
+)
+```
+
+
+```{r}
 #--------------------------------------------------
 # 5. Plot AUC comparison
 #--------------------------------------------------
@@ -122,6 +138,18 @@ ggsave(
   plot = p_auc,
   width = 8,
   height = 5
+)
+```
+
+```{r}
+best_overall <- final_comparison %>%
+  slice_max(order_by = auc, n = 1, with_ties = TRUE)
+
+print(best_overall)
+
+write_csv(
+  best_overall,
+  here("outputs", "tables", "best_overall_models.csv")
 )
 ```
 
