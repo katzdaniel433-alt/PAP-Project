@@ -10,6 +10,7 @@ output: html_document
 
 library(tidyverse)
 library(here)
+library(IlluminaHumanMethylation450kanno.ilmn12.hg19)
 ```
 
 ```{r}
@@ -97,7 +98,12 @@ annotation_clean <- annotation_df %>%
     pos,
     UCSC_RefGene_Name,
     UCSC_RefGene_Group,
-    Relation_to_UCSC_CpG_Island
+    Regulatory_Feature_Name,
+    Regulatory_Feature_Group,
+    Enhancer,
+    HMM_Island,
+    DHS,
+    DMR
   )
 ```
 
@@ -110,9 +116,9 @@ top_methylation_annotated <- methylation_rf_varimp %>%
   left_join(annotation_clean, by = "feature") %>%
   mutate(
     gene_symbol = ifelse(
-      is.na(UCSC_RefGene_Name) | UCSC_RefGene_Name == "",
-      NA_character_,
-      str_split(UCSC_RefGene_Name, ";", simplify = TRUE)[, 1]
+      !is.na(UCSC_RefGene_Name) & UCSC_RefGene_Name != "",
+      str_split(UCSC_RefGene_Name, ";", simplify = TRUE)[, 1],
+      NA_character_
     )
   ) %>%
   select(
@@ -122,7 +128,12 @@ top_methylation_annotated <- methylation_rf_varimp %>%
     chr,
     pos,
     UCSC_RefGene_Group,
-    Relation_to_UCSC_CpG_Island
+    Regulatory_Feature_Name,
+    Regulatory_Feature_Group,
+    Enhancer,
+    HMM_Island,
+    DHS,
+    DMR
   ) %>%
   arrange(desc(Overall))
 
