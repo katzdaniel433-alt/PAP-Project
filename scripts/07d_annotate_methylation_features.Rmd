@@ -1,0 +1,136 @@
+---
+title: "07d_annotate_methylation_features"
+output: html_document
+---
+
+```{r}
+#--------------------------------------------------
+# 1. Load packages
+#--------------------------------------------------
+
+library(tidyverse)
+library(here)
+```
+
+```{r}
+#--------------------------------------------------
+# 2. Load top methylation features
+#--------------------------------------------------
+
+methylation_rf_varimp <- read_csv(
+  here("outputs", "tables", "methylation_rf_top_features.csv"),
+  show_col_types = FALSE
+)
+```
+
+```{r}
+#--------------------------------------------------
+# 3. Load annotation package
+#    Try 450k first, then EPIC
+#--------------------------------------------------
+
+annotation_df <- NULL
+
+if (requireNamespace("IlluminaHumanMethylation450kanno.ilmn12.hg19", quietly = TRUE)) {
+  ann_obj <- get(
+    "Locations",
+    envir = asNamespace("IlluminaHumanMethylation450kanno.ilmn12.hg19")
+  )
+  
+  ann_other <- get(
+    "Other",
+    envir = asNamespace("IlluminaHumanMethylation450kanno.ilmn12.hg19")
+  )
+  
+  annotation_df <- ann_obj %>%
+    as.data.frame() %>%
+    rownames_to_column("feature") %>%
+    left_join(
+      ann_other %>%
+        as.data.frame() %>%
+        rownames_to_column("feature"),
+      by = "feature"
+    )
+  
+} else if (requireNamespace("IlluminaHumanMethylationEPICanno.ilm10b4.hg19", quietly = TRUE)) {
+  ann_obj <- get(
+    "Locations",
+    envir = asNamespace("IlluminaHumanMethylationEPICanno.ilm10b4.hg19")
+  )
+  
+  ann_other <- get(
+    "Other",
+    envir = asNamespace("IlluminaHumanMethylationEPICanno.ilm10b4.hg19")
+  )
+  
+  annotation_df <- ann_obj %>%
+    as.data.frame() %>%
+    rownames_to_column("feature") %>%
+    left_join(
+      ann_other %>%
+        as.data.frame() %>%
+        rownames_to_column("feature"),
+      by = "feature"
+    )
+  
+} else {
+  stop(
+    paste(
+      "No Illumina methylation annotation package found.",
+      "Install one of:",
+      "'IlluminaHumanMethylation450kanno.ilmn12.hg19' or",
+      "'IlluminaHumanMethylationEPICanno.ilm10b4.hg19'"
+    )
+  )
+}
+```
+
+```{r}
+#--------------------------------------------------
+# 4. Keep relevant annotation fields
+#--------------------------------------------------
+
+annotation_clean <- annotation_df %>%
+  select(
+    feature,
+    chr,
+    pos,
+    UCSC_RefGene_Name,
+    UCSC_RefGene_Group,
+    Relation_to_UCSC_CpG_Island
+  )
+```
+
+```{r}
+#--------------------------------------------------
+# 5. Join top features with annotation
+#--------------------------------------------------
+
+top_methylation_annotated <- methylation_rf_varimp %>%
+  left_join(annotation_clean, by = "feature") %>%
+  mutate(
+    gene_symbol = ifelse(
+      is.na(UCSC_RefGene_Name) | UCSC_RefGene_Name == "",
+      NA_character_,
+      str_split(UCSC_RefGene_Name, ";", simplify = TRUE)[, 1]
+    )
+  ) %>%
+  select(
+    feature,
+    Overall,
+    gene_symbol,
+    chr,
+    pos,
+    UCSC_RefGene_Group,
+    Relation_to_UCSC_CpG_Island
+  ) %>%
+  arrange(desc(Overall))
+
+print(top_methylation_annotated)
+
+write_csv(
+  top_methylation_annotated,
+  here("outputs", "tables", "top_methylation_features_annotated.csv")
+)
+```
+
