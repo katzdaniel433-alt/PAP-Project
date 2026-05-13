@@ -214,6 +214,53 @@ ggsave(
 ```
 
 ```{r}
+p_class_balance <- ggplot(
+  outcome_balance_by_cohort,
+  aes(x = cohort, y = n, fill = survival_500)
+) +
+  geom_col(
+    position = position_dodge(width = 0.75),
+    width = 0.65
+  ) +
+  scale_fill_manual(
+    values = c(
+      "No" = "#F59E0B",
+      "Yes" = "#19E0E6"
+    )
+  ) +
+  labs(
+    title = "500-day survival class balance by cohort",
+    x = NULL,
+    y = "Count",
+    fill = "Survival > 500 days"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.background = element_rect(fill = "transparent", colour = NA),
+    panel.background = element_rect(fill = "transparent", colour = NA),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.key = element_rect(fill = "transparent", colour = NA),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    axis.title = element_text(colour = "white", face = "bold"),
+    axis.text = element_text(colour = "#D9E2F2"),
+    plot.title = element_text(colour = "white", face = "bold", size = 24),
+    legend.title = element_text(colour = "white", face = "bold"),
+    legend.text = element_text(colour = "#D9E2F2")
+  )
+
+ggsave(
+  here("outputs", "figures", "outcome_balance_transparent.png"),
+  p_class_balance,
+  width = 10,
+  height = 6,
+  dpi = 300,
+  bg = "transparent"
+)
+```
+
+
+```{r}
 #--------------------------------------------------
 # 5. Expression variance summary
 #--------------------------------------------------
@@ -357,6 +404,43 @@ ggsave(
   plot = p_meth_pca,
   width = 7,
   height = 5
+)
+```
+```{r}
+p_meth_pca <- ggplot(meth_pca_df, aes(x = PC1, y = PC2, color = survival_500)) +
+  geom_point(size = 3, alpha = 0.9) +
+  labs(
+    title = "Methylation PCA",
+    subtitle = "Top-variance methylation features coloured by 500-day survival outcome",
+    x = "PC1",
+    y = "PC2",
+    color = "Survival > 500 days"
+  ) +
+  scale_color_manual(
+    values = c("No" = "#4FD1C5", "Yes" = "#F59E0B")
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.background = element_rect(fill = "transparent", colour = NA),
+    panel.background = element_rect(fill = "transparent", colour = NA),
+    panel.grid.major = element_line(colour = "#2A3A58", linewidth = 0.5),
+    panel.grid.minor = element_blank(),
+    axis.line = element_line(colour = "#5EE7FF", linewidth = 0.6),
+    axis.ticks = element_line(colour = "#5EE7FF"),
+    axis.title = element_text(colour = "white", face = "bold"),
+    axis.text = element_text(colour = "#D9E2F2"),
+    plot.title = element_text(colour = "white", face = "bold", size = 20),
+    plot.subtitle = element_text(colour = "#B9C6DA", size = 12),
+    legend.background = element_rect(fill = "transparent", colour = "transparent"),
+    legend.key = element_rect(fill = "transparent", colour = NA),
+    legend.title = element_text(colour = "white", face = "bold"),
+    legend.text = element_text(colour = "#D9E2F2")
+  )
+p_meth_pca
+
+ggsave(
+  here("outputs", "figures", "methylation_pca_transparent.png"),
+  plot = p_meth_pca,
 )
 ```
 
