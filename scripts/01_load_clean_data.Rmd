@@ -16,7 +16,7 @@ library(purrr)
 
 ```{r}
 #--------------------------------------------------
-# 0. Helper function
+# Helper functions
 #--------------------------------------------------
 
 fix_missing <- function(df) {
@@ -81,7 +81,7 @@ expr_raw <- read_csv(
 
 ```{r}
 #--------------------------------------------------
-# 2. Clean names + fix missing values
+# 2. Cleaning + Fix missing values
 #--------------------------------------------------
 
 sample_sheet <- sample_sheet_raw %>%
@@ -120,7 +120,7 @@ table(clinical$demographic_vital_status, useNA = "ifany")
 
 ```{r}
 #--------------------------------------------------
-# 3. Build sample manifest
+# 3. Sample manifest
 #--------------------------------------------------
 
 sample_manifest <- sample_sheet %>%
@@ -142,7 +142,7 @@ sample_manifest <- sample_sheet %>%
 
 ```{r}
 #--------------------------------------------------
-# 4. Build patient-level clinical master
+# 4. Build a master file for clinical data
 #--------------------------------------------------
 
 clinical_core <- clinical %>%
@@ -233,10 +233,9 @@ clinical_missing_summary %>%
 
 ```{r}
 #--------------------------------------------------
-# 6. Clean expression matrix
+# 6. Expression matrix + Cleaning
 #--------------------------------------------------
 
-# remove version suffix from Ensembl IDs if wanted
 expr_clean <- expr %>%
   rename(gene_id = 1) %>%
   mutate(gene_id = str_remove(gene_id, "\\..*$")) %>%
@@ -247,7 +246,6 @@ expr_clean <- expr %>%
 sum(duplicated(expr_clean$gene_id))
 dim(expr_clean)
 
-# transpose: rows become samples, columns become genes
 expr_t <- expr_clean %>%
   column_to_rownames("gene_id") %>%
   t() %>%
@@ -266,7 +264,7 @@ sum(duplicated(expr_t$sample_submitter_id))
 
 ```{r}
 #--------------------------------------------------
-# 7. Merge clinical + expression
+# 7. Merge clinical + expression data
 #--------------------------------------------------
 
 merged_clinical_expression <- clinical_master %>%
@@ -275,7 +273,7 @@ merged_clinical_expression <- clinical_master %>%
 
 ```{r}
 #--------------------------------------------------
-# 8. Save interim outputs
+# 8. Save intermediate outputs
 #--------------------------------------------------
 
 write_rds(sample_manifest, here("data", "interim", "sample_manifest.rds"))
@@ -286,14 +284,12 @@ write_rds(merged_clinical_expression, here("data", "interim", "merged_clinical_e
 
 ```{r}
 #--------------------------------------------------
-# 10. Methylation Matrix
+# 9. Methylation matrix
 #--------------------------------------------------
-
 meth_files <- list.files(
   here("data", "raw", "MethylationData"),
   full.names = TRUE
 )
-
 ```
 
 ```{r}
@@ -334,7 +330,6 @@ read_meth_file <- function(path, meth_lookup) {
     mutate(!!sample_id := as.numeric(.data[[sample_id]]))
 }
 ```
-
 
 ```{r}
 meth_list <- lapply(meth_files, read_meth_file, meth_lookup = meth_lookup)
@@ -384,7 +379,7 @@ merged_clinical_multiomic <- clinical_master %>%
 
 ```{r}
 #--------------------------------------------------
-# 14. One compact set of ID checks
+# 10. ID checks
 #--------------------------------------------------
 
 id_checks <- tibble(
@@ -418,7 +413,7 @@ meth_t %>% count(case_submitter_id) %>% filter(n > 1)
 
 ```{r}
 #--------------------------------------------------
-# 15. Save interim outputs
+# 11. Save outputs
 #--------------------------------------------------
 
 write_rds(sample_manifest, here("data", "interim", "sample_manifest.rds"))
