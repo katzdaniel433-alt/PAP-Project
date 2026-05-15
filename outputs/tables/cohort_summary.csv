@@ -1,5 +1,5 @@
-cohort,n_rows,n_unique_cases
-clinical_master,86,86
-expression_only,85,85
-methylation_only,86,86
-multiomic,85,85
+cohort,n_rows,n_unique_cases,n_labelled_500
+clinical_master,86,86,81
+expression_only,85,85,80
+methylation_only,86,86,81
+multiomic,85,85,80

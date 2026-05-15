@@ -9,10 +9,15 @@ library(here)
 library(scales)
 ```
 
+```{r}
+dir.create(here("outputs", "tables"), recursive = TRUE, showWarnings = FALSE)
+dir.create(here("outputs", "figures"), recursive = TRUE, showWarnings = FALSE)
+```
+
 
 ```{r}
 #--------------------------------------------------
-# 1. Load interim data
+# 1. Load intermediate data
 #--------------------------------------------------
 
 clinical_master <- read_rds(here("data", "interim", "clinical_master.rds"))
@@ -37,13 +42,35 @@ make_survival_500 <- function(df) {
     )
 }
 
+# Patients who died within 500 days are labelled "No".
+# Patients who died after 500 days, or were alive with follow-up beyond 500 days, are labelled "Yes".
+# Patients censored before 500 days are left as NA because their 500-day survival status cannot be confirmed.
+
 clinical_master <- make_survival_500(clinical_master)
 merged_clinical_expression <- make_survival_500(merged_clinical_expression)
 merged_clinical_methylation <- make_survival_500(merged_clinical_methylation)
 merged_clinical_multiomic <- make_survival_500(merged_clinical_multiomic)
 
-```
+write_rds(
+  clinical_master,
+  here("data", "interim", "clinical_master_with_outcome.rds")
+)
 
+write_rds(
+  merged_clinical_expression,
+  here("data", "interim", "merged_clinical_expression_with_outcome.rds")
+)
+
+write_rds(
+  merged_clinical_methylation,
+  here("data", "interim", "merged_clinical_methylation_with_outcome.rds")
+)
+
+write_rds(
+  merged_clinical_multiomic,
+  here("data", "interim", "merged_clinical_multiomic_with_outcome.rds")
+)
+```
 
 ```{r}
 #--------------------------------------------------
@@ -63,6 +90,12 @@ cohort_summary <- tibble(
     n_distinct(merged_clinical_expression$case_submitter_id),
     n_distinct(merged_clinical_methylation$case_submitter_id),
     n_distinct(merged_clinical_multiomic$case_submitter_id)
+  ),
+  n_labelled_500 = c(
+    sum(!is.na(clinical_master$survival_500)),
+    sum(!is.na(merged_clinical_expression$survival_500)),
+    sum(!is.na(merged_clinical_methylation$survival_500)),
+    sum(!is.na(merged_clinical_multiomic$survival_500))
   )
 )
 
@@ -75,6 +108,9 @@ write_csv(
 ```
 
 ```{r}
+#--------------------------------------------------
+# 3. Percentage missing
+#--------------------------------------------------
 clinical_missing_summary <- clinical_master %>%
   summarise(across(everything(), ~ mean(is.na(.)))) %>%
   pivot_longer(
@@ -114,6 +150,9 @@ ggsave(
 ```
 
 ```{r}
+#--------------------------------------------------
+# 4. Gender + race + ethnicity + age
+#--------------------------------------------------
 summary(clinical_master$age_at_index)
 
 clinical_master %>%
@@ -146,6 +185,10 @@ ggsave(
 ```
 
 ```{r}
+
+#--------------------------------------------------
+# 5. Survival completeness + outcome balance
+#--------------------------------------------------
 survival_completeness <- clinical_master %>%
   summarise(
     n_patients = n(),
@@ -191,7 +234,7 @@ write_csv(
   here("outputs", "tables", "outcome_balance_by_cohort.csv")
 )
 
-p_outcome <- outcome_balance %>%
+p_outcome_report <- outcome_balance %>%
   filter(!is.na(survival_500)) %>%
   ggplot(aes(x = cohort, y = n, fill = survival_500)) +
   geom_col(position = "dodge") +
@@ -203,19 +246,19 @@ p_outcome <- outcome_balance %>%
   ) +
   theme_minimal()
 
-print(p_outcome)
+print(p_outcome_report)
 
 ggsave(
   here("outputs", "figures", "outcome_balance_by_cohort.png"),
-  plot = p_outcome,
+  plot = p_outcome_report,
   width = 7,
   height = 4
 )
 ```
 
 ```{r}
-p_class_balance <- ggplot(
-  outcome_balance_by_cohort,
+p_outcome_presentation <- ggplot(
+  outcome_balance,
   aes(x = cohort, y = n, fill = survival_500)
 ) +
   geom_col(
@@ -251,7 +294,7 @@ p_class_balance <- ggplot(
 
 ggsave(
   here("outputs", "figures", "outcome_balance_transparent.png"),
-  p_class_balance,
+  p_outcome_presentation,
   width = 10,
   height = 6,
   dpi = 300,
@@ -259,10 +302,9 @@ ggsave(
 )
 ```
 
-
 ```{r}
 #--------------------------------------------------
-# 5. Expression variance summary
+# 6. Expression variance summary
 #--------------------------------------------------
 
 expr_feature_cols <- setdiff(
@@ -271,7 +313,7 @@ expr_feature_cols <- setdiff(
 )
 
 expr_var <- expr_t %>%
-  summarise(across(all_of(expr_feature_cols), var, na.rm = TRUE)) %>%
+  summarise(across(all_of(expr_feature_cols), ~ var(.x, na.rm = TRUE))) %>%
   pivot_longer(
     everything(),
     names_to = "gene",
@@ -288,13 +330,17 @@ write_csv(
 ```
 
 ```{r}
+#--------------------------------------------------
+# 7. Methylation variance summary
+#--------------------------------------------------
+
 meth_feature_cols <- setdiff(
   names(meth_t),
   c("sample_submitter_id", "case_submitter_id")
 )
-
+ 
 meth_var <- meth_t %>%
-  summarise(across(all_of(meth_feature_cols), var, na.rm = TRUE)) %>%
+  summarise(across(all_of(meth_feature_cols), ~ var(.x, na.rm = TRUE))) %>%
   pivot_longer(
     everything(),
     names_to = "probe",
@@ -310,10 +356,43 @@ write_csv(
 )
 ```
 
+```{r}
+meth_missing_summary <- meth_t %>%
+  summarise(across(all_of(meth_feature_cols), ~ mean(is.na(.x)))) %>%
+  pivot_longer(
+    everything(),
+    names_to = "probe",
+    values_to = "missing_prop"
+  ) %>%
+  arrange(desc(missing_prop))
+
+summary(meth_missing_summary$missing_prop)
+
+write_csv(
+  meth_missing_summary,
+  here("outputs", "tables", "methylation_missing_summary.csv")
+)
+
+expr_missing_summary <- expr_t %>%
+  summarise(across(all_of(expr_feature_cols), ~ mean(is.na(.x)))) %>%
+  pivot_longer(
+    everything(),
+    names_to = "gene",
+    values_to = "missing_prop"
+  ) %>%
+  arrange(desc(missing_prop))
+
+summary(expr_missing_summary$missing_prop)
+
+write_csv(
+  expr_missing_summary,
+  here("outputs", "tables", "expression_missing_summary.csv")
+)
+```
 
 ```{r}
 #--------------------------------------------------
-# 6. Expression PCA
+# 8. Expression PCA
 #--------------------------------------------------
 
 expr_var_clean <- expr_var %>%
@@ -326,6 +405,7 @@ top_expr_features <- expr_var_clean %>%
 
 expr_pca_input <- expr_t %>%
   select(all_of(top_expr_features)) %>%
+  mutate(across(everything(), ~ log1p(.x))) %>%
   as.data.frame()
 
 expr_pca <- prcomp(expr_pca_input, center = TRUE, scale. = TRUE)
@@ -337,12 +417,14 @@ expr_pca_df <- as_tibble(expr_pca$x[, 1:2]) %>%
     by = "case_submitter_id"
   )
 
+expr_pca_var <- (expr_pca$sdev^2) / sum(expr_pca$sdev^2)
+
 p_expr_pca <- ggplot(expr_pca_df, aes(x = PC1, y = PC2, color = survival_500)) +
-  geom_point(size = 2) +
+  geom_point(size = 2.5, alpha = 0.9) +
   labs(
     title = "Expression PCA",
-    x = "PC1",
-    y = "PC2",
+    x = paste0("PC1 (", percent(expr_pca_var[1], accuracy = 0.1), ")"),
+    y = paste0("PC2 (", percent(expr_pca_var[2], accuracy = 0.1), ")"),
     color = "Survival > 500 days"
   ) +
   theme_minimal()
@@ -359,7 +441,7 @@ ggsave(
 
 ```{r}
 #--------------------------------------------------
-# 8. Methylation PCA
+# 9. Methylation PCA
 #--------------------------------------------------
 
 meth_var_clean <- meth_var %>%
@@ -374,11 +456,17 @@ meth_pca_input <- meth_t %>%
   select(all_of(top_meth_features)) %>%
   mutate(across(
     everything(),
-    ~ ifelse(is.na(.x) | !is.finite(.x), mean(.x[is.finite(.x)], na.rm = TRUE), .x)
+    ~ {
+      finite_x <- .x[is.finite(.x)]
+      replacement <- median(finite_x, na.rm = TRUE)
+      ifelse(is.na(.x) | !is.finite(.x), replacement, .x)
+    }
   )) %>%
   as.data.frame()
 
 meth_pca <- prcomp(meth_pca_input, center = TRUE, scale. = TRUE)
+
+summary(meth_pca)
 
 meth_pca_df <- as_tibble(meth_pca$x[, 1:2]) %>%
   bind_cols(meth_t %>% select(sample_submitter_id, case_submitter_id)) %>%
@@ -387,33 +475,37 @@ meth_pca_df <- as_tibble(meth_pca$x[, 1:2]) %>%
     by = "case_submitter_id"
   )
 
-p_meth_pca <- ggplot(meth_pca_df, aes(x = PC1, y = PC2, color = survival_500)) +
-  geom_point(size = 2) +
+meth_pca_var <- (meth_pca$sdev^2) / sum(meth_pca$sdev^2)
+
+p_meth_pca_report <- ggplot(meth_pca_df, aes(x = PC1, y = PC2, color = survival_500)) +
+  geom_point(size = 2.5, alpha = 0.9) +
   labs(
     title = "Methylation PCA",
-    x = "PC1",
-    y = "PC2",
+    x = paste0("PC1 (", percent(meth_pca_var[1], accuracy = 0.1), ")"),
+    y = paste0("PC2 (", percent(meth_pca_var[2], accuracy = 0.1), ")"),
     color = "Survival > 500 days"
   ) +
   theme_minimal()
 
-print(p_meth_pca)
+print(p_meth_pca_report)
 
 ggsave(
-  here("outputs", "figures", "methylation_pca.png"),
-  plot = p_meth_pca,
-  width = 7,
-  height = 5
+  here("outputs", "figures", "methylation_pca_report.png"),
+  plot = p_meth_pca_report,
+  width = 8,
+  height = 5,
+  dpi = 300,
+  bg = "transparent"
 )
 ```
+
 ```{r}
-p_meth_pca <- ggplot(meth_pca_df, aes(x = PC1, y = PC2, color = survival_500)) +
+p_meth_pca_presentation <- ggplot(meth_pca_df, aes(x = PC1, y = PC2, color = survival_500)) +
   geom_point(size = 3, alpha = 0.9) +
   labs(
     title = "Methylation PCA",
-    subtitle = "Top-variance methylation features coloured by 500-day survival outcome",
-    x = "PC1",
-    y = "PC2",
+    x = paste0("PC1 (", percent(meth_pca_var[1], accuracy = 0.1), ")"),
+    y = paste0("PC2 (", percent(meth_pca_var[2], accuracy = 0.1), ")"),
     color = "Survival > 500 days"
   ) +
   scale_color_manual(
@@ -436,11 +528,15 @@ p_meth_pca <- ggplot(meth_pca_df, aes(x = PC1, y = PC2, color = survival_500)) +
     legend.title = element_text(colour = "white", face = "bold"),
     legend.text = element_text(colour = "#D9E2F2")
   )
-p_meth_pca
+p_meth_pca_presentation
 
 ggsave(
-  here("outputs", "figures", "methylation_pca_transparent.png"),
-  plot = p_meth_pca,
+  here("outputs", "figures", "methylation_pca_presentation.png"),
+  plot = p_meth_pca_presentation,
+  width = 8,
+  height = 5,
+  dpi = 300,
+  bg = "transparent"
 )
 ```
 
