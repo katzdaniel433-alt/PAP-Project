@@ -8,16 +8,20 @@ library(tidyverse)
 library(here)
 ```
 
+```{r}
+dir.create(here("data", "processed"), recursive = TRUE, showWarnings = FALSE)
+dir.create(here("outputs", "tables"), recursive = TRUE, showWarnings = FALSE)
+```
+
 
 ```{r}
 #--------------------------------------------------
-# 1. Interim data
+# 1. Intermediate data
 #--------------------------------------------------
 
-merged_clinical_expression <- read_rds(here("data", "interim", "merged_clinical_expression.rds"))
-merged_clinical_methylation <- read_rds(here("data", "interim", "merged_clinical_methylation.rds"))
-merged_clinical_multiomic <- read_rds(here("data", "interim", "merged_clinical_multiomic.rds"))
-
+merged_clinical_expression <- read_rds(here("data", "interim", "merged_clinical_expression_with_outcome.rds"))
+merged_clinical_methylation <- read_rds(here("data", "interim", "merged_clinical_methylation_with_outcome.rds"))
+merged_clinical_multiomic <- read_rds(here("data", "interim", "merged_clinical_multiomic_with_outcome.rds"))
 ```
 
 
@@ -34,18 +38,6 @@ variance_vec <- function(x) {
   var(x, na.rm = TRUE)
 }
 
-make_survival_500 <- function(df) {
-  df %>%
-    mutate(
-      survival_500 = case_when(
-        !is.na(days_to_death) & days_to_death <= 500 ~ "No",
-        !is.na(days_to_death) & days_to_death > 500 ~ "Yes",
-        is.na(days_to_death) & !is.na(days_to_follow_up) & days_to_follow_up > 500 ~ "Yes",
-        TRUE ~ NA_character_
-      ),
-      survival_500 = factor(survival_500, levels = c("No", "Yes"))
-    )
-}
 ```
 
 ```{r}
@@ -54,15 +46,12 @@ make_survival_500 <- function(df) {
 #--------------------------------------------------
 
 expr_model <- merged_clinical_expression %>%
-  make_survival_500() %>%
   filter(!is.na(survival_500))
 
 meth_model <- merged_clinical_methylation %>%
-  make_survival_500() %>%
   filter(!is.na(survival_500))
 
 multi_model <- merged_clinical_multiomic %>%
-  make_survival_500() %>%
   filter(!is.na(survival_500))
 ```
 
@@ -144,12 +133,15 @@ top_expr_features <- expr_keep_var %>%
   pull(feature)
 
 x_expression <- expr_model %>%
-  select(all_of(top_expr_features))
+  select(all_of(top_expr_features)) %>%
+  mutate(across(everything(), ~ log1p(.x)))
 
 y_expression <- expr_model$survival_500
 
-model_data_expression_only <- expr_model %>%
-  select(all_of(meta_cols_expr), all_of(top_expr_features))
+model_data_expression_only <- bind_cols(
+  expr_model %>% select(all_of(meta_cols_expr)),
+  x_expression
+)
 ```
 
 ```{r}
@@ -278,7 +270,8 @@ top_multi_meth_features <- multi_meth_keep_var %>%
   pull(feature)
 
 x_multi_expr <- multi_model %>%
-  select(all_of(top_multi_expr_features))
+  select(all_of(top_multi_expr_features)) %>%
+  mutate(across(everything(), ~ log1p(.x)))
 
 x_multi_meth <- multi_model %>%
   select(all_of(top_multi_meth_features)) %>%
@@ -296,6 +289,36 @@ model_data_multiomic <- bind_cols(
   x_multiomic
 )
 ```
+
+```{r}
+any(duplicated(names(x_expression)))
+any(duplicated(names(x_methylation)))
+any(duplicated(names(x_multiomic)))
+```
+
+
+```{r}
+write_csv(
+  tibble(feature = top_expr_features),
+  here("outputs", "tables", "selected_expression_features.csv")
+)
+
+write_csv(
+  tibble(feature = top_meth_features),
+  here("outputs", "tables", "selected_methylation_features.csv")
+)
+
+write_csv(
+  tibble(feature = top_multi_expr_features),
+  here("outputs", "tables", "selected_multiomic_expression_features.csv")
+)
+
+write_csv(
+  tibble(feature = top_multi_meth_features),
+  here("outputs", "tables", "selected_multiomic_methylation_features.csv")
+)
+```
+
 
 ```{r}
 #--------------------------------------------------
@@ -332,6 +355,7 @@ write_rds(
   here("data", "processed", "x_multiomic.rds")
 )
 
+
 write_rds(
   y_expression,
   here("data", "processed", "y_expression.rds")
@@ -356,6 +380,11 @@ write_rds(
 feature_engineering_summary <- tibble(
   dataset = c("Expression", "Methylation", "Multiomic"),
   n_patients = c(nrow(x_expression), nrow(x_methylation), nrow(x_multiomic)),
+  raw_features_considered = c(
+    length(expr_feature_cols),
+    length(meth_feature_cols),
+    length(multi_feature_cols)
+  ),
   n_features = c(ncol(x_expression), ncol(x_methylation), ncol(x_multiomic))
 )
 
@@ -384,5 +413,9 @@ dim(x_multiomic)
 table(y_expression)
 table(y_methylation)
 table(y_multiomic)
+
+anyNA(x_expression)
+anyNA(x_methylation)
+anyNA(x_multiomic)
 ```
 

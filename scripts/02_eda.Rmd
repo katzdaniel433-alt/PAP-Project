@@ -7,6 +7,7 @@ output: html_document
 library(tidyverse)
 library(here)
 library(scales)
+library(e1071)
 ```
 
 ```{r}
@@ -389,6 +390,239 @@ write_csv(
   here("outputs", "tables", "expression_missing_summary.csv")
 )
 ```
+
+```{r}
+#--------------------------------------------------
+# Expression skewness check
+#--------------------------------------------------
+set.seed(4003)
+
+expr_skew_features <- sample(
+  expr_feature_cols,
+  size = min(5000, length(expr_feature_cols))
+)
+
+expr_skew_summary <- expr_t %>%
+  select(all_of(expr_skew_features)) %>%
+  summarise(
+    across(
+      everything(),
+      ~ e1071::skewness(.x, na.rm = TRUE, type = 2)
+    )
+  ) %>%
+  pivot_longer(
+    everything(),
+    names_to = "gene",
+    values_to = "skewness"
+  ) %>%
+  mutate(abs_skewness = abs(skewness)) %>%
+  arrange(desc(abs_skewness))
+
+summary(expr_skew_summary$skewness)
+
+write_csv(
+  expr_skew_summary,
+  here("outputs", "tables", "expression_skewness_summary.csv")
+)
+```
+
+```{r}
+p_expr_skew <- expr_skew_summary %>%
+  ggplot(aes(x = skewness)) +
+  geom_histogram(bins = 60, fill = "#19E0E6", colour = "white", alpha = 0.85) +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = "white") +
+  labs(
+    title = "Expression feature skewness",
+    subtitle = "Skewness across a random sample of expression features",
+    x = "Skewness",
+    y = "Number of genes"
+  ) +
+  theme_minimal()
+
+p_expr_skew
+
+ggsave(
+  here("outputs", "figures", "expression_skewness_histogram.png"),
+  plot = p_expr_skew,
+  width = 8,
+  height = 5,
+  dpi = 300
+)
+```
+
+```{r}
+#--------------------------------------------------
+# Raw vs log1p expression skewness comparison
+#--------------------------------------------------
+
+expr_skew_compare <- expr_t %>%
+  select(all_of(expr_skew_features)) %>%
+  pivot_longer(
+    everything(),
+    names_to = "gene",
+    values_to = "raw_value"
+  ) %>%
+  group_by(gene) %>%
+  summarise(
+    raw_skewness = e1071::skewness(raw_value, na.rm = TRUE, type = 2),
+    log1p_skewness = e1071::skewness(log1p(raw_value), na.rm = TRUE, type = 2),
+    .groups = "drop"
+  ) %>%
+  pivot_longer(
+    cols = c(raw_skewness, log1p_skewness),
+    names_to = "scale",
+    values_to = "skewness"
+  ) %>%
+  mutate(
+    scale = recode(
+      scale,
+      raw_skewness = "Raw expression",
+      log1p_skewness = "log1p expression"
+    )
+  )
+
+p_expr_skew_compare <- expr_skew_compare %>%
+  ggplot(aes(x = skewness, fill = scale)) +
+  geom_histogram(
+    bins = 60,
+    alpha = 0.65,
+    position = "identity"
+  ) +
+  scale_fill_manual(
+    values = c(
+      "Raw expression" = "#F59E0B",
+      "log1p expression" = "#19E0E6"
+    )
+  ) +
+  labs(
+    title = "Raw vs log-transformed expression skewness",
+    subtitle = "log1p transformation reduces right-skewness in RNA-seq counts",
+    x = "Skewness",
+    y = "Number of genes",
+    fill = NULL
+  ) +
+  theme_minimal()
+
+p_expr_skew_compare
+
+ggsave(
+  here("outputs", "figures", "expression_skewness_raw_vs_log1p.png"),
+  plot = p_expr_skew_compare,
+  width = 8,
+  height = 5,
+  dpi = 300
+)
+```
+
+```{r}
+#--------------------------------------------------
+# Methylation skewness check
+#--------------------------------------------------
+
+library(e1071)
+
+safe_skewness <- function(x) {
+  x <- x[is.finite(x) & !is.na(x)]
+  
+  if (length(x) < 3) {
+    return(NA_real_)
+  }
+  
+  e1071::skewness(x, type = 2)
+}
+
+set.seed(4003)
+
+meth_skew_features <- sample(
+  meth_feature_cols,
+  size = min(5000, length(meth_feature_cols))
+)
+
+meth_skew_summary <- meth_t %>%
+  select(all_of(meth_skew_features)) %>%
+  summarise(
+    across(
+      everything(),
+      ~ safe_skewness(.x)
+    )
+  ) %>%
+  pivot_longer(
+    everything(),
+    names_to = "probe",
+    values_to = "skewness"
+  ) %>%
+  mutate(abs_skewness = abs(skewness)) %>%
+  arrange(desc(abs_skewness))
+
+summary(meth_skew_summary$skewness)
+
+sum(is.na(meth_skew_summary$skewness))
+
+expr_skew_compare %>%
+  group_by(scale) %>%
+  summarise(
+    n_features = n(),
+    mean_skewness = mean(skewness, na.rm = TRUE),
+    median_skewness = median(skewness, na.rm = TRUE),
+    q25 = quantile(skewness, 0.25, na.rm = TRUE),
+    q75 = quantile(skewness, 0.75, na.rm = TRUE),
+    prop_abs_skew_gt_1 = mean(abs(skewness) > 1, na.rm = TRUE),
+    prop_abs_skew_gt_2 = mean(abs(skewness) > 2, na.rm = TRUE)
+  )
+
+write_csv(
+  meth_skew_summary,
+  here("outputs", "tables", "methylation_skewness_summary.csv")
+)
+```
+
+```{r}
+p_meth_skew <- meth_skew_summary %>%
+  filter(!is.na(skewness)) %>%
+  ggplot(aes(x = skewness)) +
+  geom_histogram(
+    bins = 60,
+    fill = "#F59E0B",
+    colour = "white",
+    alpha = 0.85
+  ) +
+  geom_vline(
+    xintercept = 0,
+    linetype = "dashed",
+    colour = "white"
+  ) +
+  labs(
+    title = "Methylation feature skewness",
+    subtitle = "Skewness across sampled methylation probes",
+    x = "Skewness",
+    y = "Number of probes"
+  ) +
+  theme_minimal()
+
+p_meth_skew
+
+ggsave(
+  here("outputs", "figures", "methylation_skewness_histogram.png"),
+  plot = p_meth_skew,
+  width = 8,
+  height = 5,
+  dpi = 300
+)
+
+meth_skew_summary %>%
+  summarise(
+    n_features = n(),
+    n_missing_skewness = sum(is.na(skewness)),
+    mean_skewness = mean(skewness, na.rm = TRUE),
+    median_skewness = median(skewness, na.rm = TRUE),
+    q25 = quantile(skewness, 0.25, na.rm = TRUE),
+    q75 = quantile(skewness, 0.75, na.rm = TRUE),
+    prop_abs_skew_gt_1 = mean(abs(skewness) > 1, na.rm = TRUE),
+    prop_abs_skew_gt_2 = mean(abs(skewness) > 2, na.rm = TRUE)
+  )
+```
+
+
 
 ```{r}
 #--------------------------------------------------
