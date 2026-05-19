@@ -23,10 +23,11 @@ model_data_methylation_only <- read_rds(
   here("data", "processed", "model_data_methylation_only.rds")
 )
 
-x_multiomic <- read_rds(here("data", "processed", "x_multiomic.rds"))
-y_multiomic <- read_rds(here("data", "processed", "y_multiomic.rds"))
+model_rf_expr <- readRDS(here("outputs", "model_objects", "model_rf_expression.rds"))
+model_rf_meth <- readRDS(here("outputs", "model_objects", "model_rf_methylation.rds"))
 
 dir.create(here("outputs", "tables"), recursive = TRUE, showWarnings = FALSE)
+dir.create(here("outputs", "figures"), recursive = TRUE, showWarnings = FALSE)
 ```
 
 ```{r}
@@ -37,6 +38,7 @@ dir.create(here("outputs", "tables"), recursive = TRUE, showWarnings = FALSE)
 expr_df <- model_data_expression_only %>%
   select(case_submitter_id, survival_500, starts_with("ENSG"))
 
+
 meth_df <- model_data_methylation_only %>%
   select(case_submitter_id, survival_500, starts_with("cg"))
 
@@ -46,6 +48,13 @@ expr_df <- expr_df %>%
   filter(case_submitter_id %in% common_cases) %>%
   arrange(case_submitter_id)
 
+expr_feature_cols <- names(expr_df)[str_detect(names(expr_df), "^ENSG")]
+
+expr_df <- expr_df %>%
+  mutate(across(all_of(expr_feature_cols), ~ log1p(.x)))
+
+summary(as.matrix(expr_df %>% select(starts_with("ENSG")))[, 1:5])
+
 meth_df <- meth_df %>%
   filter(case_submitter_id %in% common_cases) %>%
   arrange(case_submitter_id)
@@ -53,6 +62,7 @@ meth_df <- meth_df %>%
 stopifnot(all(expr_df$case_submitter_id == meth_df$case_submitter_id))
 stopifnot(all(expr_df$survival_500 == meth_df$survival_500))
 
+# Keep levels as c("No", "Yes") here because glm(binomial) models the probability of the second factor level, i.e. "Yes".
 y_common <- factor(expr_df$survival_500, levels = c("No", "Yes"))
 
 x_expr <- expr_df %>%
@@ -94,14 +104,17 @@ for (i in seq_along(fold_index)) {
   y_train <- y_common[train_idx]
   y_test  <- y_common[test_idx]
   
+expr_best <- model_rf_expr$bestTune
+meth_best <- model_rf_meth$bestTune
+  
   # expression RF
   rf_expr <- ranger(
     x = x_expr_train,
     y = y_train,
     probability = TRUE,
     num.trees = 1000,
-    mtry = 150,
-    min.node.size = 1,
+    mtry = expr_best$mtry,
+    min.node.size = expr_best$min.node.size,
     importance = "impurity",
     seed = 123
   )
@@ -115,8 +128,8 @@ for (i in seq_along(fold_index)) {
     y = y_train,
     probability = TRUE,
     num.trees = 1000,
-    mtry = 50,
-    min.node.size = 10,
+    mtry = meth_best$mtry,
+    min.node.size = meth_best$min.node.size,
     importance = "impurity",
     seed = 123
   )
@@ -178,6 +191,23 @@ late_integration_summary <- tibble(
 
 print(late_integration_summary)
 
+final_model_comparison <- read_csv(
+  here("outputs", "tables", "final_model_comparison.csv"),
+  show_col_types = FALSE
+)
+
+direct_multiomic_rf <- final_model_comparison %>%
+  filter(data_source == "Multiomic", model %in% c("RandomForest", "Random Forest")) %>%
+  transmute(
+    model = "DirectIntegration_Multiomic_RF",
+    auc = auc
+  )
+
+late_integration_summary <- bind_rows(
+  late_integration_summary,
+  direct_multiomic_rf
+)
+
 write_csv(
   oof_predictions,
   here("outputs", "tables", "late_integration_oof_predictions.csv")
@@ -186,6 +216,39 @@ write_csv(
 write_csv(
   late_integration_summary,
   here("outputs", "tables", "late_integration_summary.csv")
+)
+```
+
+```{r}
+p_late_integration <- late_integration_summary %>%
+  mutate(model = fct_reorder(model, auc)) %>%
+  ggplot(aes(x = auc, y = model)) +
+  geom_col(fill = "#F59E0B", width = 0.7) +
+  geom_text(
+    aes(label = sprintf("%.3f", auc)),
+    hjust = -0.15,
+    colour = "black",
+    fontface = "bold",
+    size = 4
+  ) +
+  scale_x_continuous(
+    limits = c(0, max(late_integration_summary$auc, na.rm = TRUE) * 1.12)
+  ) +
+  labs(
+    title = "Alternative integration check",
+    x = "Out-of-fold AUC",
+    y = NULL
+  ) +
+  theme_minimal(base_size = 13)
+
+p_late_integration
+
+ggsave(
+  here("outputs", "figures", "late_integration_auc.png"),
+  plot = p_late_integration,
+  width = 8,
+  height = 4.5,
+  dpi = 300
 )
 ```
 
