@@ -10,7 +10,9 @@ output: html_document
 
 library(tidyverse)
 library(here)
-library(IlluminaHumanMethylation450kanno.ilmn12.hg19)
+
+dir.create(here("outputs", "tables"), recursive = TRUE, showWarnings = FALSE)
+dir.create(here("outputs", "figures"), recursive = TRUE, showWarnings = FALSE)
 ```
 
 ```{r}
@@ -91,20 +93,37 @@ if (requireNamespace("IlluminaHumanMethylation450kanno.ilmn12.hg19", quietly = T
 # 4. Keep relevant annotation fields
 #--------------------------------------------------
 
+#--------------------------------------------------
+# 4. Keep relevant annotation fields safely
+#--------------------------------------------------
+
+needed_cols <- c(
+  "feature",
+  "chr",
+  "pos",
+  "UCSC_RefGene_Name",
+  "UCSC_RefGene_Group",
+  "Regulatory_Feature_Name",
+  "Regulatory_Feature_Group",
+  "Enhancer",
+  "HMM_Island",
+  "DHS",
+  "DMR"
+)
+
 annotation_clean <- annotation_df %>%
-  select(
-    feature,
-    chr,
-    pos,
-    UCSC_RefGene_Name,
-    UCSC_RefGene_Group,
-    Regulatory_Feature_Name,
-    Regulatory_Feature_Group,
-    Enhancer,
-    HMM_Island,
-    DHS,
-    DMR
-  )
+  select(any_of(needed_cols))
+
+# Add any missing columns as NA so later code does not fail
+missing_cols <- setdiff(needed_cols, names(annotation_clean))
+
+for (col in missing_cols) {
+  annotation_clean[[col]] <- NA_character_
+}
+
+# Put columns back in consistent order
+annotation_clean <- annotation_clean %>%
+  select(all_of(needed_cols))
 ```
 
 ```{r}
@@ -119,12 +138,22 @@ top_methylation_annotated <- methylation_rf_varimp %>%
       !is.na(UCSC_RefGene_Name) & UCSC_RefGene_Name != "",
       str_split(UCSC_RefGene_Name, ";", simplify = TRUE)[, 1],
       NA_character_
+    ),
+    simplified_region = case_when(
+      !is.na(UCSC_RefGene_Group) & str_detect(UCSC_RefGene_Group, "TSS200") ~ "Promoter-proximal",
+      !is.na(UCSC_RefGene_Group) & str_detect(UCSC_RefGene_Group, "TSS1500") ~ "Promoter region",
+      !is.na(UCSC_RefGene_Group) & str_detect(UCSC_RefGene_Group, "5'UTR") ~ "5′UTR",
+      !is.na(UCSC_RefGene_Group) & str_detect(UCSC_RefGene_Group, "1stExon") ~ "First exon",
+      !is.na(UCSC_RefGene_Group) & str_detect(UCSC_RefGene_Group, "Body") ~ "Gene body",
+      !is.na(Enhancer) & Enhancer != "" ~ "Enhancer",
+      TRUE ~ "Unannotated / other"
     )
   ) %>%
   select(
     feature,
     Overall,
     gene_symbol,
+    simplified_region,
     chr,
     pos,
     UCSC_RefGene_Group,
@@ -142,6 +171,45 @@ print(top_methylation_annotated)
 write_csv(
   top_methylation_annotated,
   here("outputs", "tables", "top_methylation_features_annotated.csv")
+)
+```
+
+```{r}
+top_methylation_report_table <- top_methylation_annotated %>%
+  mutate(
+    gene_symbol = ifelse(is.na(gene_symbol) | gene_symbol == "", "—", gene_symbol),
+    Overall = round(Overall, 1)
+  ) %>%
+  select(
+    Probe = feature,
+    Gene = gene_symbol,
+    Region = simplified_region,
+    Importance = Overall
+  ) %>%
+  slice_head(n = 10)
+
+print(top_methylation_report_table)
+
+write_csv(
+  top_methylation_report_table,
+  here("outputs", "tables", "top_methylation_report_table.csv")
+)
+```
+
+```{r}
+annotation_summary <- top_methylation_annotated %>%
+  summarise(
+    n_top_features = n(),
+    n_with_gene = sum(!is.na(gene_symbol) & gene_symbol != ""),
+    n_without_gene = sum(is.na(gene_symbol) | gene_symbol == ""),
+    prop_with_gene = n_with_gene / n_top_features
+  )
+
+print(annotation_summary)
+
+write_csv(
+  annotation_summary,
+  here("outputs", "tables", "methylation_annotation_summary.csv")
 )
 ```
 
