@@ -1,4 +1,4 @@
-data_source,model,ROC,auc,Sens,Spec
+Data source,Model,CV ROC,Pooled AUC,Sensitivity,Specificity
 Multiomic,Random Forest,0.765,0.757,0.777,0.629
 Methylation,Random Forest,0.763,0.747,0.739,0.627
 Expression,Elastic Net,0.747,0.715,0.867,0.34
