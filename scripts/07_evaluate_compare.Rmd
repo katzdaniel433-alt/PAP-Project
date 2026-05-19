@@ -11,6 +11,9 @@ output: html_document
 library(tidyverse)
 library(here)
 
+dir.create(here("outputs", "tables"), recursive = TRUE, showWarnings = FALSE)
+dir.create(here("outputs", "figures"), recursive = TRUE, showWarnings = FALSE)
+
 expr_model_summary <- read_csv(here("outputs", "tables", "expression_model_summary.csv"), show_col_types = FALSE)
 expr_auc_summary <- read_csv(here("outputs", "tables", "expression_auc_summary.csv"), show_col_types = FALSE)
 
@@ -63,6 +66,24 @@ all_auc_summary <- bind_rows(
   multi_auc_summary
 )
 
+all_model_summary <- all_model_summary %>%
+  mutate(
+    model = recode(
+      model,
+      "ElasticNet" = "Elastic Net",
+      "RandomForest" = "Random Forest"
+    )
+  )
+
+all_auc_summary <- all_auc_summary %>%
+  mutate(
+    model = recode(
+      model,
+      "ElasticNet" = "Elastic Net",
+      "RandomForest" = "Random Forest"
+    )
+  )
+
 print(all_model_summary)
 print(all_auc_summary)
 
@@ -88,7 +109,7 @@ final_comparison <- all_model_summary %>%
     all_auc_summary,
     by = c("data_source", "model")
   ) %>%
-  arrange(desc(auc))
+  arrange(desc(ROC))
 
 print(final_comparison)
 
@@ -106,7 +127,7 @@ report_table <- final_comparison %>%
     Spec = round(Spec, 3),
     auc = round(auc, 3)
   ) %>%
-  select(data_source, model, auc, ROC, Sens, Spec)
+  select(data_source, model, ROC, auc, Sens, Spec)
 
 print(report_table)
 
@@ -142,14 +163,84 @@ ggsave(
 ```
 
 ```{r}
-best_overall <- final_comparison %>%
-  slice_max(order_by = auc, n = 1, with_ties = TRUE)
+auc_plot_df <- report_table %>%
+  mutate(
+    label = paste(data_source, model),
+    label = factor(label, levels = rev(label[order(ROC)]))
+  )
 
-print(best_overall)
+p_auc <- ggplot(auc_plot_df, aes(x = ROC, y = label, fill = data_source)) +
+  geom_col(width = 0.7) +
+  geom_text(
+    aes(label = sprintf("%.3f", ROC)),
+    hjust = -0.15,
+    colour = "white",
+    size = 4.5,
+    fontface = "bold"
+  ) +
+  scale_fill_manual(
+    values = c(
+      "Expression" = "#19E0E6",
+      "Methylation" = "#F59E0B",
+      "Multiomic" = "#8B5CF6"
+    )
+  ) +
+  scale_x_continuous(
+    limits = c(0, max(auc_plot_df$ROC, na.rm = TRUE) * 1.12)
+  ) +
+  labs(
+    title = "Model comparison by cross-validated ROC",
+    x = "Cross-validated ROC",
+    y = NULL,
+    fill = "Data source"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.background = element_rect(fill = "transparent", colour = NA),
+    panel.background = element_rect(fill = "transparent", colour = NA),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.x = element_line(colour = "#22324D", linewidth = 0.4),
+    axis.title.x = element_text(colour = "white", face = "bold"),
+    axis.text.x = element_text(colour = "#D9E2F2"),
+    axis.text.y = element_text(colour = "white", face = "bold"),
+    plot.title = element_text(colour = "white", face = "bold", size = 24),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.key = element_rect(fill = "transparent", colour = NA),
+    legend.title = element_text(colour = "white", face = "bold"),
+    legend.text = element_text(colour = "#D9E2F2")
+  )
 
-write_csv(
-  best_overall,
-  here("outputs", "tables", "best_overall_models.csv")
+p_auc
+
+ggsave(
+  here("outputs", "figures", "auc_comparison_presentation.png"),
+  plot = p_auc,
+  width = 10,
+  height = 6,
+  dpi = 300,
+  bg = "transparent"
 )
+```
+
+
+```{r}
+best_by_source <- final_comparison %>%
+  group_by(data_source) %>%
+  slice_max(order_by = ROC, n = 1, with_ties = TRUE) %>%
+  ungroup()
+
+best_by_model <- final_comparison %>%
+  group_by(model) %>%
+  slice_max(order_by = ROC, n = 1, with_ties = TRUE) %>%
+  ungroup()
+
+best_single_omics <- final_comparison %>%
+  filter(data_source %in% c("Expression", "Methylation")) %>%
+  slice_max(order_by = ROC, n = 1, with_ties = TRUE)
+
+write_csv(best_by_source, here("outputs", "tables", "best_by_data_source.csv"))
+write_csv(best_by_model, here("outputs", "tables", "best_by_model_type.csv"))
+write_csv(best_single_omics, here("outputs", "tables", "best_single_omics_model.csv"))
 ```
 
