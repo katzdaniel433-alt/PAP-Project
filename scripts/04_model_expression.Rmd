@@ -14,6 +14,10 @@ library(caret)
 library(glmnet)
 library(pROC)
 library(ranger)
+library(tictoc)
+
+dir.create(here("outputs", "tables"), recursive = TRUE, showWarnings = FALSE)
+dir.create(here("outputs", "model_objects"), recursive = TRUE, showWarnings = FALSE)
 
 x_expression <- read_rds(here("data", "processed", "x_expression.rds"))
 y_expression <- read_rds(here("data", "processed", "y_expression.rds"))
@@ -29,7 +33,7 @@ y_expression <- read_rds(here("data", "processed", "y_expression.rds"))
 x_expression <- x_expression %>%
   mutate(across(everything(), as.numeric))
 
-y_expression <- factor(y_expression, levels = c("No", "Yes"))
+y_expression <- factor(y_expression, levels = c("Yes", "No"))
 
 table(y_expression)
 ```
@@ -63,14 +67,17 @@ enet_grid <- expand.grid(
 
 set.seed(123)
 
+tic()
 model_enet_expr <- train(
   x = x_expression,
   y = y_expression,
   method = "glmnet",
   metric = "ROC",
   trControl = ctrl,
-  tuneGrid = enet_grid
+  tuneGrid = enet_grid,
+  preProcess = c("center", "scale")
 )
+toc()
 
 print(model_enet_expr)
 print(model_enet_expr$bestTune)
@@ -88,7 +95,7 @@ rf_grid <- expand.grid(
   splitrule = "gini",
   min.node.size = c(1, 3, 5, 10, 15, 20)
 )
-
+tic()
 model_rf_expr <- train(
   x = x_expression,
   y = y_expression,
@@ -99,6 +106,7 @@ model_rf_expr <- train(
   num.trees = 1000,
   importance = "impurity"
 )
+toc()
 
 print(model_rf_expr)
 print(model_rf_expr$bestTune)
@@ -156,7 +164,9 @@ enet_pred <- model_enet_expr$pred %>%
 
 rf_pred <- model_rf_expr$pred %>%
   filter(
-    mtry == model_rf_expr$bestTune$mtry
+    mtry == model_rf_expr$bestTune$mtry,
+    splitrule == model_rf_expr$bestTune$splitrule,
+    min.node.size == model_rf_expr$bestTune$min.node.size
   ) %>%
   mutate(model = "RandomForest")
 
@@ -167,6 +177,24 @@ write_csv(
   here("outputs", "tables", "expression_cv_predictions.csv")
 )
 ```
+
+```{r}
+enet_cm <- confusionMatrix(
+  data = enet_pred$pred,
+  reference = enet_pred$obs,
+  positive = "Yes"
+)
+
+rf_cm <- confusionMatrix(
+  data = rf_pred$pred,
+  reference = rf_pred$obs,
+  positive = "Yes"
+)
+
+enet_cm
+rf_cm
+```
+
 
 ```{r}
 #--------------------------------------------------
@@ -233,6 +261,36 @@ write_csv(
 #--------------------------------------------------
 # 10. Save model objects
 #--------------------------------------------------
+
+write_csv(
+  as.data.frame(enet_cm$table),
+  here("outputs", "tables", "expression_enet_confusion_matrix.csv")
+)
+
+write_csv(
+  as.data.frame(rf_cm$table),
+  here("outputs", "tables", "expression_rf_confusion_matrix.csv")
+)
+
+write_csv(
+  tibble(
+    model = "ElasticNet",
+    accuracy = enet_cm$overall["Accuracy"],
+    sensitivity = enet_cm$byClass["Sensitivity"],
+    specificity = enet_cm$byClass["Specificity"]
+  ),
+  here("outputs", "tables", "expression_enet_confusion_stats.csv")
+)
+
+write_csv(
+  tibble(
+    model = "RandomForest",
+    accuracy = rf_cm$overall["Accuracy"],
+    sensitivity = rf_cm$byClass["Sensitivity"],
+    specificity = rf_cm$byClass["Specificity"]
+  ),
+  here("outputs", "tables", "expression_rf_confusion_stats.csv")
+)
 
 saveRDS(
   model_enet_expr,

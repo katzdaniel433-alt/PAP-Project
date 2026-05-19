@@ -1,0 +1,2 @@
+model,accuracy,sensitivity,specificity
+ElasticNet,0.615,0.8666666666666667,0.3368421052631579

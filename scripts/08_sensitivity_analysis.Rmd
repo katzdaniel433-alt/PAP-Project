@@ -1,5 +1,5 @@
 ---
-title: "07b_sensitivity_analysis"
+title: "08_sensitivity_analysis"
 output: html_document
 ---
 
@@ -15,29 +15,17 @@ library(ranger)
 library(pROC)
 
 merged_clinical_methylation <- read_rds(
-  here("data", "interim", "merged_clinical_methylation.rds")
+  here("data", "interim", "merged_clinical_methylation_with_outcome.rds")
 )
 
 dir.create(here("outputs", "tables"), recursive = TRUE, showWarnings = FALSE)
+dir.create(here("outputs", "figures"), recursive = TRUE, showWarnings = FALSE)
 ```
 
 ```{r}
 #--------------------------------------------------
 # 2. Helper functions
 #--------------------------------------------------
-
-make_survival_500 <- function(df) {
-  df %>%
-    mutate(
-      survival_500 = case_when(
-        !is.na(days_to_death) & days_to_death <= 500 ~ "No",
-        !is.na(days_to_death) & days_to_death > 500 ~ "Yes",
-        is.na(days_to_death) & !is.na(days_to_follow_up) & days_to_follow_up > 500 ~ "Yes",
-        TRUE ~ NA_character_
-      ),
-      survival_500 = factor(survival_500, levels = c("No", "Yes"))
-    )
-}
 
 prop_missing_vec <- function(x) mean(is.na(x))
 variance_vec <- function(x) var(x, na.rm = TRUE)
@@ -49,8 +37,12 @@ variance_vec <- function(x) var(x, na.rm = TRUE)
 #--------------------------------------------------
 
 meth_model <- merged_clinical_methylation %>%
-  make_survival_500() %>%
   filter(!is.na(survival_500))
+
+meth_model <- meth_model %>%
+  mutate(
+    survival_500 = factor(survival_500, levels = c("Yes", "No"))
+  )
 
 meta_cols <- intersect(
   c(
@@ -174,28 +166,23 @@ fit_rf_cv <- function(x, y, folds = 5, repeats = 5, seed = 123) {
     direction = "<"
   )$auc
   
-  tibble(
-    folds = folds,
-    repeats = repeats,
-    best_mtry = model_rf$bestTune$mtry,
-    best_min_node_size = model_rf$bestTune$min.node.size,
-    ROC = max(model_rf$results$ROC, na.rm = TRUE),
-    Sens = model_rf$results %>%
-      filter(
-        mtry == model_rf$bestTune$mtry,
-        splitrule == model_rf$bestTune$splitrule,
-        min.node.size == model_rf$bestTune$min.node.size
-      ) %>%
-      pull(Sens),
-    Spec = model_rf$results %>%
-      filter(
-        mtry == model_rf$bestTune$mtry,
-        splitrule == model_rf$bestTune$splitrule,
-        min.node.size == model_rf$bestTune$min.node.size
-      ) %>%
-      pull(Spec),
-    auc = as.numeric(auc_val)
+  best_row <- model_rf$results %>%
+  filter(
+    mtry == model_rf$bestTune$mtry,
+    splitrule == model_rf$bestTune$splitrule,
+    min.node.size == model_rf$bestTune$min.node.size
   )
+  
+  tibble(
+  folds = folds,
+  repeats = repeats,
+  best_mtry = model_rf$bestTune$mtry,
+  best_min_node_size = model_rf$bestTune$min.node.size,
+  ROC = best_row$ROC,
+  Sens = best_row$Sens,
+  Spec = best_row$Spec,
+  auc = as.numeric(auc_val)
+)
 }
 ```
 
@@ -238,7 +225,6 @@ sensitivity_feature_results <- map_dfr(feature_counts, function(nf) {
 cv_settings <- tribble(
   ~folds, ~repeats,
   3,      5,
-  5,      5,
   10,     3
 )
 
@@ -272,13 +258,69 @@ sensitivity_cv_results <- pmap_dfr(cv_settings, function(folds, repeats) {
 sensitivity_results <- bind_rows(
   sensitivity_feature_results,
   sensitivity_cv_results
-)
+) %>%
+  mutate(
+    setting = case_when(
+      scenario == "feature_count" ~ paste0(feature_count, " probes; 5-fold × 5 repeats"),
+      scenario == "cv_design" ~ paste0("2000 probes; ", folds, "-fold × ", repeats, " repeats"),
+      TRUE ~ scenario
+    )
+  )
 
 print(sensitivity_results)
 
 write_csv(
   sensitivity_results,
   here("outputs", "tables", "sensitivity_analysis_results.csv")
+)
+```
+
+```{r}
+sensitivity_plot_df <- sensitivity_results %>%
+  mutate(
+    scenario_label = case_when(
+      scenario == "feature_count" ~ paste0(feature_count, " probes"),
+      scenario == "cv_design" ~ paste0(folds, "-fold × ", repeats, " repeats"),
+      TRUE ~ scenario
+    )
+  )
+
+p_sensitivity <- sensitivity_plot_df %>%
+  ggplot(aes(x = reorder(scenario_label, ROC), y = ROC, fill = scenario)) +
+  geom_col(width = 0.7) +
+  geom_text(
+    aes(label = sprintf("%.3f", ROC)),
+    hjust = -0.15,
+    colour = "white",
+    fontface = "bold",
+    size = 4
+  ) +
+  coord_flip() +
+  scale_fill_manual(
+    values = c(
+      "feature_count" = "#F59E0B",
+      "cv_design" = "#19E0E6"
+    )
+  ) +
+  scale_y_continuous(
+    limits = c(0, max(sensitivity_plot_df$ROC, na.rm = TRUE) * 1.12)
+  ) +
+  labs(
+    title = "Methylation RF sensitivity analysis",
+    x = NULL,
+    y = "Cross-validated ROC",
+    fill = NULL
+  ) +
+  theme_minimal(base_size = 14)
+
+p_sensitivity
+
+ggsave(
+  here("outputs", "figures", "sensitivity_analysis_rf_methylation.png"),
+  plot = p_sensitivity,
+  width = 9,
+  height = 5,
+  dpi = 300
 )
 ```
 

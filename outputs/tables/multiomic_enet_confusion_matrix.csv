@@ -1,0 +1,5 @@
+Prediction,Reference,Freq
+Yes,Yes,192
+No,Yes,18
+Yes,No,142
+No,No,48

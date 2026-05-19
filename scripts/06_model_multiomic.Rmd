@@ -14,6 +14,10 @@ library(caret)
 library(glmnet)
 library(ranger)
 library(pROC)
+library(tictoc)
+
+dir.create(here("outputs", "tables"), recursive = TRUE, showWarnings = FALSE)
+dir.create(here("outputs", "model_objects"), recursive = TRUE, showWarnings = FALSE)
 
 x_multiomic <- read_rds(here("data", "processed", "x_multiomic.rds"))
 y_multiomic <- read_rds(here("data", "processed", "y_multiomic.rds"))
@@ -28,7 +32,10 @@ y_multiomic <- read_rds(here("data", "processed", "y_multiomic.rds"))
 x_multiomic <- x_multiomic %>%
   mutate(across(everything(), as.numeric))
 
-y_multiomic <- factor(y_multiomic, levels = c("No", "Yes"))
+anyNA(x_multiomic)
+any(!is.finite(as.matrix(x_multiomic)))
+
+y_multiomic <- factor(y_multiomic, levels = c("Yes", "No"))
 
 table(y_multiomic)
 ```
@@ -62,14 +69,17 @@ enet_grid <- expand.grid(
 
 set.seed(123)
 
+tic()
 model_enet_multi <- train(
   x = x_multiomic,
   y = y_multiomic,
   method = "glmnet",
   metric = "ROC",
   trControl = ctrl,
-  tuneGrid = enet_grid
+  tuneGrid = enet_grid,
+  preProcess = c("center", "scale")
 )
+toc()
 
 print(model_enet_multi)
 print(model_enet_multi$bestTune)
@@ -88,6 +98,7 @@ rf_grid <- expand.grid(
 
 set.seed(123)
 
+tic()
 model_rf_multi <- train(
   x = x_multiomic,
   y = y_multiomic,
@@ -98,6 +109,7 @@ model_rf_multi <- train(
   num.trees = 1000,
   importance = "impurity"
 )
+toc()
 
 print(model_rf_multi)
 print(model_rf_multi$bestTune)
@@ -170,6 +182,39 @@ write_csv(
 ```
 
 ```{r}
+enet_cm <- confusionMatrix(
+  data = enet_pred$pred,
+  reference = enet_pred$obs,
+  positive = "Yes"
+)
+
+rf_cm <- confusionMatrix(
+  data = rf_pred$pred,
+  reference = rf_pred$obs,
+  positive = "Yes"
+)
+
+multi_confusion_stats <- bind_rows(
+  tibble(
+    model = "ElasticNet",
+    accuracy = as.numeric(enet_cm$overall["Accuracy"]),
+    sensitivity = as.numeric(enet_cm$byClass["Sensitivity"]),
+    specificity = as.numeric(enet_cm$byClass["Specificity"])
+  ),
+  tibble(
+    model = "RandomForest",
+    accuracy = as.numeric(rf_cm$overall["Accuracy"]),
+    sensitivity = as.numeric(rf_cm$byClass["Sensitivity"]),
+    specificity = as.numeric(rf_cm$byClass["Specificity"])
+  )
+)
+
+enet_cm
+rf_cm
+```
+
+
+```{r}
 #--------------------------------------------------
 # 8. Compute AUC from saved CV predictions
 #--------------------------------------------------
@@ -234,6 +279,31 @@ write_csv(
 #--------------------------------------------------
 # 10. Save model objects
 #--------------------------------------------------
+
+write_csv(
+  as.data.frame(enet_cm$table),
+  here("outputs", "tables", "multiomic_enet_confusion_matrix.csv")
+)
+
+write_csv(
+  as.data.frame(rf_cm$table),
+  here("outputs", "tables", "multiomic_rf_confusion_matrix.csv")
+)
+
+write_csv(
+  multi_confusion_stats,
+  here("outputs", "tables", "multiomic_confusion_stats.csv")
+)
+
+write_csv(
+  model_enet_multi$results,
+  here("outputs", "tables", "multiomic_enet_full_tuning.csv")
+)
+
+write_csv(
+  model_rf_multi$results,
+  here("outputs", "tables", "multiomic_rf_full_tuning.csv")
+)
 
 saveRDS(
   model_enet_multi,
