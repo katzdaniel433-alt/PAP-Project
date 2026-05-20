@@ -1,0 +1,6 @@
+figure,file
+Class balance,figure_class_balance_light_purple.png
+Model comparison CV ROC,figure_model_comparison_cv_roc_light_purple.png
+ROC curves Random Forest,figure_roc_curves_random_forest_light_purple.png
+Sensitivity analysis,figure_sensitivity_analysis_light_purple.png
+Top methylation importance,figure_top_methylation_importance_light_purple.png

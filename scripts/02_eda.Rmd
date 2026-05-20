@@ -15,7 +15,6 @@ dir.create(here("outputs", "tables"), recursive = TRUE, showWarnings = FALSE)
 dir.create(here("outputs", "figures"), recursive = TRUE, showWarnings = FALSE)
 ```
 
-
 ```{r}
 #--------------------------------------------------
 # 1. Load intermediate data
@@ -84,28 +83,23 @@ cohort_summary <- tibble(
     nrow(clinical_master),
     nrow(merged_clinical_expression),
     nrow(merged_clinical_methylation),
-    nrow(merged_clinical_multiomic)
-  ),
+    nrow(merged_clinical_multiomic)),
   n_unique_cases = c(
     n_distinct(clinical_master$case_submitter_id),
     n_distinct(merged_clinical_expression$case_submitter_id),
     n_distinct(merged_clinical_methylation$case_submitter_id),
-    n_distinct(merged_clinical_multiomic$case_submitter_id)
-  ),
+    n_distinct(merged_clinical_multiomic$case_submitter_id)),
   n_labelled_500 = c(
     sum(!is.na(clinical_master$survival_500)),
     sum(!is.na(merged_clinical_expression$survival_500)),
     sum(!is.na(merged_clinical_methylation$survival_500)),
-    sum(!is.na(merged_clinical_multiomic$survival_500))
-  )
-)
+    sum(!is.na(merged_clinical_multiomic$survival_500))))
 
 cohort_summary
 
 write_csv(
   cohort_summary,
-  here("outputs", "tables", "cohort_summary.csv")
-)
+  here("outputs", "tables", "cohort_summary.csv"))
 ```
 
 ```{r}
@@ -117,16 +111,14 @@ clinical_missing_summary <- clinical_master %>%
   pivot_longer(
     cols = everything(),
     names_to = "variable",
-    values_to = "missing_prop"
-  ) %>%
+    values_to = "missing_prop") %>%
   arrange(desc(missing_prop))
 
 clinical_missing_summary
 
 write_csv(
   clinical_missing_summary,
-  here("outputs", "tables", "clinical_missing_summary.csv")
-)
+  here("outputs", "tables", "clinical_missing_summary.csv"))
 
 p_missing <- clinical_missing_summary %>%
   ggplot(aes(x = reorder(variable, missing_prop), y = missing_prop)) +
@@ -136,9 +128,7 @@ p_missing <- clinical_missing_summary %>%
   labs(
     title = "Missingness in compact clinical variables",
     x = NULL,
-    y = "Proportion missing"
-  ) +
-  theme_minimal()
+    y = "Proportion missing") 
 
 print(p_missing)
 
@@ -146,13 +136,12 @@ ggsave(
   here("outputs", "figures", "clinical_missingness.png"),
   plot = p_missing,
   width = 8,
-  height = 5
-)
+  height = 5)
 ```
 
 ```{r}
 #--------------------------------------------------
-# 4. Gender + race + ethnicity + age
+# 4. Gender, race, ethnicity, age
 #--------------------------------------------------
 summary(clinical_master$age_at_index)
 
@@ -171,8 +160,7 @@ p_age <- clinical_master %>%
   labs(
     title = "Distribution of age at index",
     x = "Age at index",
-    y = "Count"
-  ) +
+    y = "Count") +
   theme_minimal()
 
 print(p_age)
@@ -181,8 +169,7 @@ ggsave(
   here("outputs", "figures", "age_distribution.png"),
   plot = p_age,
   width = 7,
-  height = 4
-)
+  height = 4)
 ```
 
 ```{r}
@@ -197,15 +184,13 @@ survival_completeness <- clinical_master %>%
     missing_days_to_follow_up = sum(is.na(days_to_follow_up)),
     missing_both = sum(is.na(days_to_death) & is.na(days_to_follow_up)),
     usable_survival_500 = sum(!is.na(survival_500)),
-    missing_survival_500 = sum(is.na(survival_500))
-  )
+    missing_survival_500 = sum(is.na(survival_500)))
 
 survival_completeness
 
 write_csv(
   survival_completeness,
-  here("outputs", "tables", "survival_completeness.csv")
-)
+  here("outputs", "tables", "survival_completeness.csv"))
 
 merged_clinical_expression %>%
   count(survival_500, .drop = FALSE)
@@ -225,8 +210,7 @@ outcome_balance <- bind_rows(
     mutate(cohort = "Methylation"),
   merged_clinical_multiomic %>%
     count(survival_500, .drop = FALSE) %>%
-    mutate(cohort = "Multiomic")
-)
+    mutate(cohort = "Multiomic"))
 
 outcome_balance
 
@@ -234,6 +218,29 @@ write_csv(
   outcome_balance,
   here("outputs", "tables", "outcome_balance_by_cohort.csv")
 )
+
+p_class_balance <- class_balance %>%
+  ggplot(aes(x = dataset, y = n, fill = survival_500)) +
+  geom_col(position = position_dodge(width = 0.75), width = 0.68) +
+  geom_text(
+    aes(label = n),
+    position = position_dodge(width = 0.75),
+    vjust = -0.35,
+    colour = "black",
+    fontface = "bold",
+    size = 4
+  ) +
+  scale_fill_manual(values = purple_class) +
+  labs(
+    title = "500-day survival class balance by cohort",
+    subtitle = "Labelled patients used in each modelling dataset",
+    x = NULL,
+    y = "Count",
+    fill = "Survival > 500 days"
+  ) +
+  theme_report(base_size = 13)
+
+p_class_balance
 
 p_outcome_report <- outcome_balance %>%
   filter(!is.na(survival_500)) %>%
@@ -260,24 +267,19 @@ ggsave(
 ```{r}
 p_outcome_presentation <- ggplot(
   outcome_balance,
-  aes(x = cohort, y = n, fill = survival_500)
-) +
+  aes(x = cohort, y = n, fill = survival_500)) +
   geom_col(
     position = position_dodge(width = 0.75),
-    width = 0.65
-  ) +
+    width = 0.65) +
   scale_fill_manual(
     values = c(
       "No" = "#F59E0B",
-      "Yes" = "#19E0E6"
-    )
-  ) +
+      "Yes" = "#19E0E6")) +
   labs(
     title = "500-day survival class balance by cohort",
     x = NULL,
     y = "Count",
-    fill = "Survival > 500 days"
-  ) +
+    fill = "Survival > 500 days") +
   theme_minimal(base_size = 14) +
   theme(
     plot.background = element_rect(fill = "transparent", colour = NA),
@@ -290,8 +292,7 @@ p_outcome_presentation <- ggplot(
     axis.text = element_text(colour = "#D9E2F2"),
     plot.title = element_text(colour = "white", face = "bold", size = 24),
     legend.title = element_text(colour = "white", face = "bold"),
-    legend.text = element_text(colour = "#D9E2F2")
-  )
+    legend.text = element_text(colour = "#D9E2F2"))
 
 ggsave(
   here("outputs", "figures", "outcome_balance_transparent.png"),
@@ -299,8 +300,7 @@ ggsave(
   width = 10,
   height = 6,
   dpi = 300,
-  bg = "transparent"
-)
+  bg = "transparent")
 ```
 
 ```{r}
@@ -310,24 +310,21 @@ ggsave(
 
 expr_feature_cols <- setdiff(
   names(expr_t),
-  c("sample_submitter_id", "case_submitter_id")
-)
+  c("sample_submitter_id", "case_submitter_id"))
 
 expr_var <- expr_t %>%
   summarise(across(all_of(expr_feature_cols), ~ var(.x, na.rm = TRUE))) %>%
   pivot_longer(
     everything(),
     names_to = "gene",
-    values_to = "variance"
-  )
+    values_to = "variance")
 
 summary(expr_var$variance)
 sum(expr_var$variance == 0, na.rm = TRUE)
 
 write_csv(
   expr_var,
-  here("outputs", "tables", "expression_variance_summary.csv")
-)
+  here("outputs", "tables", "expression_variance_summary.csv"))
 ```
 
 ```{r}
@@ -337,24 +334,21 @@ write_csv(
 
 meth_feature_cols <- setdiff(
   names(meth_t),
-  c("sample_submitter_id", "case_submitter_id")
-)
+  c("sample_submitter_id", "case_submitter_id"))
  
 meth_var <- meth_t %>%
   summarise(across(all_of(meth_feature_cols), ~ var(.x, na.rm = TRUE))) %>%
   pivot_longer(
     everything(),
     names_to = "probe",
-    values_to = "variance"
-  )
+    values_to = "variance")
 
 summary(meth_var$variance)
 sum(meth_var$variance == 0, na.rm = TRUE)
 
 write_csv(
   meth_var,
-  here("outputs", "tables", "methylation_variance_summary.csv")
-)
+  here("outputs", "tables", "methylation_variance_summary.csv"))
 ```
 
 ```{r}
@@ -363,37 +357,33 @@ meth_missing_summary <- meth_t %>%
   pivot_longer(
     everything(),
     names_to = "probe",
-    values_to = "missing_prop"
-  ) %>%
+    values_to = "missing_prop") %>%
   arrange(desc(missing_prop))
 
 summary(meth_missing_summary$missing_prop)
 
 write_csv(
   meth_missing_summary,
-  here("outputs", "tables", "methylation_missing_summary.csv")
-)
+  here("outputs", "tables", "methylation_missing_summary.csv"))
 
 expr_missing_summary <- expr_t %>%
   summarise(across(all_of(expr_feature_cols), ~ mean(is.na(.x)))) %>%
   pivot_longer(
     everything(),
     names_to = "gene",
-    values_to = "missing_prop"
-  ) %>%
+    values_to = "missing_prop") %>%
   arrange(desc(missing_prop))
 
 summary(expr_missing_summary$missing_prop)
 
 write_csv(
   expr_missing_summary,
-  here("outputs", "tables", "expression_missing_summary.csv")
-)
+  here("outputs", "tables", "expression_missing_summary.csv"))
 ```
 
 ```{r}
 #--------------------------------------------------
-# Expression skewness check
+# 8. Expression skewness check
 #--------------------------------------------------
 set.seed(4003)
 
@@ -451,9 +441,7 @@ ggsave(
 ```
 
 ```{r}
-#--------------------------------------------------
-# Raw vs log1p expression skewness comparison
-#--------------------------------------------------
+# Raw vs log1p skewness comparison
 
 expr_skew_compare <- expr_t %>%
   select(all_of(expr_skew_features)) %>%
@@ -516,7 +504,7 @@ ggsave(
 
 ```{r}
 #--------------------------------------------------
-# Methylation skewness check
+# 9. Methylation skewness check
 #--------------------------------------------------
 
 library(e1071)
@@ -626,7 +614,7 @@ meth_skew_summary %>%
 
 ```{r}
 #--------------------------------------------------
-# 8. Expression PCA
+# 10. Expression PCA
 #--------------------------------------------------
 
 expr_var_clean <- expr_var %>%
@@ -675,7 +663,7 @@ ggsave(
 
 ```{r}
 #--------------------------------------------------
-# 9. Methylation PCA
+# 11. Methylation PCA
 #--------------------------------------------------
 
 meth_var_clean <- meth_var %>%

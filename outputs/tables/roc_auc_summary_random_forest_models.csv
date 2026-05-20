@@ -1,0 +1,4 @@
+model_label,auc
+Multiomic Random Forest,0.756604010025062
+Methylation Random Forest,0.7469597069597078
+Expression Random Forest,0.7217167919799496

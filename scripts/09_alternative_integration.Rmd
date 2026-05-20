@@ -16,12 +16,10 @@ library(ranger)
 library(pROC)
 
 model_data_expression_only <- read_rds(
-  here("data", "processed", "model_data_expression_only.rds")
-)
+  here("data", "processed", "model_data_expression_only.rds"))
 
 model_data_methylation_only <- read_rds(
-  here("data", "processed", "model_data_methylation_only.rds")
-)
+  here("data", "processed", "model_data_methylation_only.rds"))
 
 model_rf_expr <- readRDS(here("outputs", "model_objects", "model_rf_expression.rds"))
 model_rf_meth <- readRDS(here("outputs", "model_objects", "model_rf_methylation.rds"))
@@ -32,7 +30,7 @@ dir.create(here("outputs", "figures"), recursive = TRUE, showWarnings = FALSE)
 
 ```{r}
 #--------------------------------------------------
-# 2. Restrict to common cases
+# 2. Only common cases
 #--------------------------------------------------
 
 expr_df <- model_data_expression_only %>%
@@ -62,7 +60,6 @@ meth_df <- meth_df %>%
 stopifnot(all(expr_df$case_submitter_id == meth_df$case_submitter_id))
 stopifnot(all(expr_df$survival_500 == meth_df$survival_500))
 
-# Keep levels as c("No", "Yes") here because glm(binomial) models the probability of the second factor level, i.e. "Yes".
 y_common <- factor(expr_df$survival_500, levels = c("No", "Yes"))
 
 x_expr <- expr_df %>%
@@ -107,7 +104,6 @@ for (i in seq_along(fold_index)) {
 expr_best <- model_rf_expr$bestTune
 meth_best <- model_rf_meth$bestTune
   
-  # expression RF
   rf_expr <- ranger(
     x = x_expr_train,
     y = y_train,
@@ -116,13 +112,11 @@ meth_best <- model_rf_meth$bestTune
     mtry = expr_best$mtry,
     min.node.size = expr_best$min.node.size,
     importance = "impurity",
-    seed = 123
-  )
+    seed = 123)
   
   pred_expr <- predict(rf_expr, data = x_expr_test)$predictions[, "Yes"]
   pred_expr_train <- predict(rf_expr, data = x_expr_train)$predictions[, "Yes"]
   
-  # methylation RF
   rf_meth <- ranger(
     x = x_meth_train,
     y = y_train,
@@ -131,32 +125,26 @@ meth_best <- model_rf_meth$bestTune
     mtry = meth_best$mtry,
     min.node.size = meth_best$min.node.size,
     importance = "impurity",
-    seed = 123
-  )
+    seed = 123)
   
   pred_meth <- predict(rf_meth, data = x_meth_test)$predictions[, "Yes"]
   pred_meth_train <- predict(rf_meth, data = x_meth_train)$predictions[, "Yes"]
   
-  # late integration: average
   pred_avg <- (pred_expr + pred_meth) / 2
   
-  # late integration: stacked meta-learner
   stack_train <- tibble(
     expr_prob = pred_expr_train,
     meth_prob = pred_meth_train,
-    survival_500 = y_train
-  )
+    survival_500 = y_train)
   
   stack_test <- tibble(
     expr_prob = pred_expr,
-    meth_prob = pred_meth
-  )
+    meth_prob = pred_meth)
   
   meta_fit <- glm(
     survival_500 ~ expr_prob + meth_prob,
     data = stack_train,
-    family = binomial()
-  )
+    family = binomial())
   
   pred_stack <- predict(meta_fit, newdata = stack_test, type = "response")
   
@@ -167,8 +155,7 @@ meth_best <- model_rf_meth$bestTune
     meth_prob = pred_meth,
     late_avg_prob = pred_avg,
     late_stack_prob = pred_stack,
-    Resample = fold_names[i]
-  )
+    Resample = fold_names[i])
 }
 
 oof_predictions <- bind_rows(fold_results)
@@ -185,38 +172,31 @@ late_integration_summary <- tibble(
     as.numeric(roc(oof_predictions$obs, oof_predictions$expr_prob, levels = c("No", "Yes"), direction = "<")$auc),
     as.numeric(roc(oof_predictions$obs, oof_predictions$meth_prob, levels = c("No", "Yes"), direction = "<")$auc),
     as.numeric(roc(oof_predictions$obs, oof_predictions$late_avg_prob, levels = c("No", "Yes"), direction = "<")$auc),
-    as.numeric(roc(oof_predictions$obs, oof_predictions$late_stack_prob, levels = c("No", "Yes"), direction = "<")$auc)
-  )
-)
+    as.numeric(roc(oof_predictions$obs, oof_predictions$late_stack_prob, levels = c("No", "Yes"), direction = "<")$auc)))
 
 print(late_integration_summary)
 
 final_model_comparison <- read_csv(
   here("outputs", "tables", "final_model_comparison.csv"),
-  show_col_types = FALSE
-)
+  show_col_types = FALSE)
 
 direct_multiomic_rf <- final_model_comparison %>%
   filter(data_source == "Multiomic", model %in% c("RandomForest", "Random Forest")) %>%
   transmute(
     model = "DirectIntegration_Multiomic_RF",
-    auc = auc
-  )
+    auc = auc)
 
 late_integration_summary <- bind_rows(
   late_integration_summary,
-  direct_multiomic_rf
-)
+  direct_multiomic_rf)
 
 write_csv(
   oof_predictions,
-  here("outputs", "tables", "late_integration_oof_predictions.csv")
-)
+  here("outputs", "tables", "late_integration_oof_predictions.csv"))
 
 write_csv(
   late_integration_summary,
-  here("outputs", "tables", "late_integration_summary.csv")
-)
+  here("outputs", "tables", "late_integration_summary.csv"))
 ```
 
 ```{r}
@@ -229,16 +209,13 @@ p_late_integration <- late_integration_summary %>%
     hjust = -0.15,
     colour = "black",
     fontface = "bold",
-    size = 4
-  ) +
+    size = 4) +
   scale_x_continuous(
-    limits = c(0, max(late_integration_summary$auc, na.rm = TRUE) * 1.12)
-  ) +
+    limits = c(0, max(late_integration_summary$auc, na.rm = TRUE) * 1.12)) +
   labs(
     title = "Alternative integration check",
     x = "Out-of-fold AUC",
-    y = NULL
-  ) +
+    y = NULL) +
   theme_minimal(base_size = 13)
 
 p_late_integration
@@ -248,7 +225,6 @@ ggsave(
   plot = p_late_integration,
   width = 8,
   height = 4.5,
-  dpi = 300
-)
+  dpi = 300)
 ```
 

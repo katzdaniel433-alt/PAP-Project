@@ -57,45 +57,37 @@ multi_auc_summary <- multi_auc_summary %>%
 all_model_summary <- bind_rows(
   expr_model_summary,
   meth_model_summary,
-  multi_model_summary
-)
+  multi_model_summary)
 
 all_auc_summary <- bind_rows(
   expr_auc_summary,
   meth_auc_summary,
-  multi_auc_summary
-)
+  multi_auc_summary)
 
 all_model_summary <- all_model_summary %>%
   mutate(
     model = recode(
       model,
       "ElasticNet" = "Elastic Net",
-      "RandomForest" = "Random Forest"
-    )
-  )
+      "RandomForest" = "Random Forest"))
 
 all_auc_summary <- all_auc_summary %>%
   mutate(
     model = recode(
       model,
       "ElasticNet" = "Elastic Net",
-      "RandomForest" = "Random Forest"
-    )
-  )
+      "RandomForest" = "Random Forest"))
 
 print(all_model_summary)
 print(all_auc_summary)
 
 write_csv(
   all_model_summary,
-  here("outputs", "tables", "all_model_summary.csv")
-)
+  here("outputs", "tables", "all_model_summary.csv"))
 
 write_csv(
   all_auc_summary,
-  here("outputs", "tables", "all_auc_summary.csv")
-)
+  here("outputs", "tables", "all_auc_summary.csv"))
 ```
 
 ```{r}
@@ -107,16 +99,14 @@ final_comparison <- all_model_summary %>%
   select(data_source, model, ROC, Sens, Spec, ROCSD, SensSD, SpecSD) %>%
   left_join(
     all_auc_summary,
-    by = c("data_source", "model")
-  ) %>%
+    by = c("data_source", "model")) %>%
   arrange(desc(ROC))
 
 print(final_comparison)
 
 write_csv(
   final_comparison,
-  here("outputs", "tables", "final_model_comparison.csv")
-)
+  here("outputs", "tables", "final_model_comparison.csv"))
 ```
 
 ```{r}
@@ -125,16 +115,14 @@ report_table <- final_comparison %>%
     ROC = round(ROC, 3),
     Sens = round(Sens, 3),
     Spec = round(Spec, 3),
-    auc = round(auc, 3)
-  ) %>%
+    auc = round(auc, 3)) %>%
   select(data_source, model, ROC, auc, Sens, Spec)
 
 print(report_table)
 
 write_csv(
   report_table,
-  here("outputs", "tables", "report_model_table.csv")
-)
+  here("outputs", "tables", "report_model_table.csv"))
 ```
 
 
@@ -149,8 +137,7 @@ p_auc <- all_auc_summary %>%
   labs(
     title = "AUC comparison across data types and models",
     x = "Data source",
-    y = "Cross-validated AUC"
-  )
+    y = "Cross-validated AUC")
 
 print(p_auc)
 
@@ -166,8 +153,7 @@ ggsave(
 auc_plot_df <- report_table %>%
   mutate(
     label = paste(data_source, model),
-    label = factor(label, levels = rev(label[order(ROC)]))
-  )
+    label = factor(label, levels = rev(label[order(ROC)])))
 
 p_auc <- ggplot(auc_plot_df, aes(x = ROC, y = label, fill = data_source)) +
   geom_col(width = 0.7) +
@@ -176,24 +162,19 @@ p_auc <- ggplot(auc_plot_df, aes(x = ROC, y = label, fill = data_source)) +
     hjust = -0.15,
     colour = "white",
     size = 4.5,
-    fontface = "bold"
-  ) +
+    fontface = "bold") +
   scale_fill_manual(
     values = c(
       "Expression" = "#19E0E6",
       "Methylation" = "#F59E0B",
-      "Multiomic" = "#8B5CF6"
-    )
-  ) +
+      "Multiomic" = "#8B5CF6")) +
   scale_x_continuous(
-    limits = c(0, max(auc_plot_df$ROC, na.rm = TRUE) * 1.12)
-  ) +
+    limits = c(0, max(auc_plot_df$ROC, na.rm = TRUE) * 1.12)) +
   labs(
     title = "Model comparison by cross-validated ROC",
     x = "Cross-validated ROC",
     y = NULL,
-    fill = "Data source"
-  ) +
+    fill = "Data source") +
   theme_minimal(base_size = 14) +
   theme(
     plot.background = element_rect(fill = "transparent", colour = NA),
@@ -208,8 +189,7 @@ p_auc <- ggplot(auc_plot_df, aes(x = ROC, y = label, fill = data_source)) +
     legend.background = element_rect(fill = "transparent", colour = NA),
     legend.key = element_rect(fill = "transparent", colour = NA),
     legend.title = element_text(colour = "white", face = "bold"),
-    legend.text = element_text(colour = "#D9E2F2")
-  )
+    legend.text = element_text(colour = "#D9E2F2"))
 
 p_auc
 
@@ -219,8 +199,7 @@ ggsave(
   width = 10,
   height = 6,
   dpi = 300,
-  bg = "transparent"
-)
+  bg = "transparent")
 ```
 
 

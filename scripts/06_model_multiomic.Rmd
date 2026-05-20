@@ -53,8 +53,7 @@ ctrl <- trainControl(
   repeats = 5,
   classProbs = TRUE,
   summaryFunction = twoClassSummary,
-  savePredictions = "final"
-)
+  savePredictions = "final")
 ```
 
 ```{r}
@@ -64,8 +63,7 @@ ctrl <- trainControl(
 
 enet_grid <- expand.grid(
   alpha = seq(0, 1, by = 0.1),
-  lambda = 10^seq(-4, 2, length.out = 50)
-)
+  lambda = 10^seq(-4, 2, length.out = 50))
 
 set.seed(123)
 
@@ -93,8 +91,7 @@ print(model_enet_multi$bestTune)
 rf_grid <- expand.grid(
   mtry = c(5, 10, 20, 35, 50, 75, 100, 150, 250, 400),
   splitrule = "gini",
-  min.node.size = c(1, 3, 5, 10, 15, 20)
-)
+  min.node.size = c(1, 3, 5, 10, 15, 20))
 
 set.seed(123)
 
@@ -107,8 +104,7 @@ model_rf_multi <- train(
   trControl = ctrl,
   tuneGrid = rf_grid,
   num.trees = 1000,
-  importance = "impurity"
-)
+  importance = "impurity")
 toc()
 
 print(model_rf_multi)
@@ -123,9 +119,7 @@ print(model_rf_multi$bestTune)
 multi_resamples <- resamples(
   list(
     ElasticNet = model_enet_multi,
-    RandomForest = model_rf_multi
-  )
-)
+    RandomForest = model_rf_multi))
 
 summary(multi_resamples)
 
@@ -134,51 +128,44 @@ multi_model_summary <- bind_rows(
     mutate(model = "ElasticNet") %>%
     filter(
       alpha == model_enet_multi$bestTune$alpha,
-      lambda == model_enet_multi$bestTune$lambda
-    ),
+      lambda == model_enet_multi$bestTune$lambda),
   model_rf_multi$results %>%
     mutate(model = "RandomForest") %>%
     filter(
       mtry == model_rf_multi$bestTune$mtry,
       splitrule == model_rf_multi$bestTune$splitrule,
-      min.node.size == model_rf_multi$bestTune$min.node.size
-    )
-)
+      min.node.size == model_rf_multi$bestTune$min.node.size))
 
 print(multi_model_summary)
 
 write_csv(
   multi_model_summary,
-  here("outputs", "tables", "multiomic_model_summary.csv")
-)
+  here("outputs", "tables", "multiomic_model_summary.csv"))
 ```
 
 ```{r}
 #--------------------------------------------------
-# 7. Extract saved predictions for best tuning parameters
+# 7. Saved predictions for best tuning parameters
 #--------------------------------------------------
 
 enet_pred <- model_enet_multi$pred %>%
   filter(
     alpha == model_enet_multi$bestTune$alpha,
-    lambda == model_enet_multi$bestTune$lambda
-  ) %>%
+    lambda == model_enet_multi$bestTune$lambda) %>%
   mutate(model = "ElasticNet")
 
 rf_pred <- model_rf_multi$pred %>%
   filter(
     mtry == model_rf_multi$bestTune$mtry,
     splitrule == model_rf_multi$bestTune$splitrule,
-    min.node.size == model_rf_multi$bestTune$min.node.size
-  ) %>%
+    min.node.size == model_rf_multi$bestTune$min.node.size) %>%
   mutate(model = "RandomForest")
 
 multi_predictions <- bind_rows(enet_pred, rf_pred)
 
 write_csv(
   multi_predictions,
-  here("outputs", "tables", "multiomic_cv_predictions.csv")
-)
+  here("outputs", "tables", "multiomic_cv_predictions.csv"))
 ```
 
 ```{r}
@@ -199,15 +186,12 @@ multi_confusion_stats <- bind_rows(
     model = "ElasticNet",
     accuracy = as.numeric(enet_cm$overall["Accuracy"]),
     sensitivity = as.numeric(enet_cm$byClass["Sensitivity"]),
-    specificity = as.numeric(enet_cm$byClass["Specificity"])
-  ),
+    specificity = as.numeric(enet_cm$byClass["Specificity"])),
   tibble(
     model = "RandomForest",
     accuracy = as.numeric(rf_cm$overall["Accuracy"]),
     sensitivity = as.numeric(rf_cm$byClass["Sensitivity"]),
-    specificity = as.numeric(rf_cm$byClass["Specificity"])
-  )
-)
+    specificity = as.numeric(rf_cm$byClass["Specificity"])))
 
 enet_cm
 rf_cm
@@ -216,34 +200,30 @@ rf_cm
 
 ```{r}
 #--------------------------------------------------
-# 8. Compute AUC from saved CV predictions
+# 8. AUC from saved CV predictions
 #--------------------------------------------------
 
 auc_enet <- roc(
   response = enet_pred$obs,
   predictor = enet_pred$Yes,
   levels = c("No", "Yes"),
-  direction = "<"
-)$auc
+  direction = "<")$auc
 
 auc_rf <- roc(
   response = rf_pred$obs,
   predictor = rf_pred$Yes,
   levels = c("No", "Yes"),
-  direction = "<"
-)$auc
+  direction = "<")$auc
 
 multi_auc_summary <- tibble(
   model = c("ElasticNet", "RandomForest"),
-  auc = c(as.numeric(auc_enet), as.numeric(auc_rf))
-)
+  auc = c(as.numeric(auc_enet), as.numeric(auc_rf)))
 
 print(multi_auc_summary)
 
 write_csv(
   multi_auc_summary,
-  here("outputs", "tables", "multiomic_auc_summary.csv")
-)
+  here("outputs", "tables", "multiomic_auc_summary.csv"))
 ```
 
 ```{r}
@@ -266,13 +246,11 @@ print(rf_varimp)
 
 write_csv(
   enet_varimp,
-  here("outputs", "tables", "multiomic_enet_top_features.csv")
-)
+  here("outputs", "tables", "multiomic_enet_top_features.csv"))
 
 write_csv(
   rf_varimp,
-  here("outputs", "tables", "multiomic_rf_top_features.csv")
-)
+  here("outputs", "tables", "multiomic_rf_top_features.csv"))
 ```
 
 ```{r}

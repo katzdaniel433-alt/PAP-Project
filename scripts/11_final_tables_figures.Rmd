@@ -16,33 +16,27 @@ dir.create(here("outputs", "figures"), recursive = TRUE, showWarnings = FALSE)
 
 expr_model_summary <- read_csv(
   here("outputs", "tables", "expression_model_summary.csv"),
-  show_col_types = FALSE
-)
+  show_col_types = FALSE)
 
 expr_auc_summary <- read_csv(
   here("outputs", "tables", "expression_auc_summary.csv"),
-  show_col_types = FALSE
-)
+  show_col_types = FALSE)
 
 meth_model_summary <- read_csv(
   here("outputs", "tables", "methylation_model_summary.csv"),
-  show_col_types = FALSE
-)
+  show_col_types = FALSE)
 
 meth_auc_summary <- read_csv(
   here("outputs", "tables", "methylation_auc_summary.csv"),
-  show_col_types = FALSE
-)
+  show_col_types = FALSE)
 
 multi_model_summary <- read_csv(
   here("outputs", "tables", "multiomic_model_summary.csv"),
-  show_col_types = FALSE
-)
+  show_col_types = FALSE)
 
 multi_auc_summary <- read_csv(
   here("outputs", "tables", "multiomic_auc_summary.csv"),
-  show_col_types = FALSE
-)
+  show_col_types = FALSE)
 ```
 
 ```{r}
@@ -78,41 +72,33 @@ multi_auc_summary <- multi_auc_summary %>%
 all_model_summary <- bind_rows(
   expr_model_summary,
   meth_model_summary,
-  multi_model_summary
-) %>%
+  multi_model_summary) %>%
   mutate(
     model = recode(
       model,
       "ElasticNet" = "Elastic Net",
-      "RandomForest" = "Random Forest"
-    )
-  )
+      "RandomForest" = "Random Forest"))
 
 all_auc_summary <- bind_rows(
   expr_auc_summary,
   meth_auc_summary,
-  multi_auc_summary
-) %>%
+  multi_auc_summary) %>%
   mutate(
     model = recode(
       model,
       "ElasticNet" = "Elastic Net",
-      "RandomForest" = "Random Forest"
-    )
-  )
+      "RandomForest" = "Random Forest"))
 
 print(all_model_summary)
 print(all_auc_summary)
 
 write_csv(
   all_model_summary,
-  here("outputs", "tables", "all_model_summary_extended.csv")
-)
+  here("outputs", "tables", "all_model_summary_extended.csv"))
 
 write_csv(
   all_auc_summary,
-  here("outputs", "tables", "all_auc_summary_extended.csv")
-)
+  here("outputs", "tables", "all_auc_summary_extended.csv"))
 ```
 
 ```{r}
@@ -124,8 +110,7 @@ final_comparison_extended <- all_model_summary %>%
   select(data_source, model, ROC, Sens, Spec, ROCSD, SensSD, SpecSD) %>%
   left_join(
     all_auc_summary,
-    by = c("data_source", "model")
-  ) %>%
+    by = c("data_source", "model")) %>%
   distinct() %>%
   arrange(desc(ROC))
 
@@ -133,13 +118,12 @@ print(final_comparison_extended)
 
 write_csv(
   final_comparison_extended,
-  here("outputs", "tables", "final_model_comparison_extended.csv")
-)
+  here("outputs", "tables", "final_model_comparison_extended.csv"))
 ```
 
 ```{r}
 #--------------------------------------------------
-# 5. Cleaner display table for report
+# 5. Display table for report
 #--------------------------------------------------
 
 report_table <- final_comparison_extended %>%
@@ -147,23 +131,20 @@ report_table <- final_comparison_extended %>%
     ROC = round(ROC, 3),
     Sens = round(Sens, 3),
     Spec = round(Spec, 3),
-    auc = round(auc, 3)
-  ) %>%
+    auc = round(auc, 3)) %>%
   select(
     "Data source" = data_source,
     Model = model,
     "CV ROC" = ROC,
     `Pooled AUC` = auc,
     Sensitivity = Sens,
-    Specificity = Spec
-  )
+    Specificity = Spec)
 
 print(report_table)
 
 write_csv(
   report_table,
-  here("outputs", "tables", "report_model_table.csv")
-)
+  here("outputs", "tables", "report_model_table.csv"))
 ```
 
 ```{r}
@@ -177,8 +158,7 @@ p_auc <- final_comparison_extended %>%
   labs(
     title = "Cross-validated ROC by data source and model",
     x = "Data source",
-    y = "CV ROC"
-  )
+    y = "CV ROC")
 
 print(p_auc)
 
@@ -186,8 +166,7 @@ ggsave(
   here("outputs", "figures", "auc_comparison_extended.png"),
   plot = p_auc,
   width = 9,
-  height = 5
-)
+  height = 5)
 ```
 
 ```{r}
@@ -202,8 +181,7 @@ print(best_overall)
 
 write_csv(
   best_overall,
-  here("outputs", "tables", "best_overall_models.csv")
-)
+  here("outputs", "tables", "best_overall_models.csv"))
 ```
 ```{r}
 best_by_source <- final_comparison_extended %>%
@@ -213,8 +191,7 @@ best_by_source <- final_comparison_extended %>%
 
 write_csv(
   best_by_source,
-  here("outputs", "tables", "best_by_data_source.csv")
-)
+  here("outputs", "tables", "best_by_data_source.csv"))
 ```
 
 ```{r}
@@ -224,8 +201,7 @@ best_single_omics <- final_comparison_extended %>%
 
 write_csv(
   best_single_omics,
-  here("outputs", "tables", "best_single_omics_model.csv")
-)
+  here("outputs", "tables", "best_single_omics_model.csv"))
 ```
 
 ```{r}
@@ -237,20 +213,17 @@ library(pROC)
 
 expr_preds <- read_csv(
   here("outputs", "tables", "expression_cv_predictions.csv"),
-  show_col_types = FALSE
-) %>%
+  show_col_types = FALSE) %>%
   mutate(data_source = "Expression")
 
 meth_preds <- read_csv(
   here("outputs", "tables", "methylation_cv_predictions.csv"),
-  show_col_types = FALSE
-) %>%
+  show_col_types = FALSE) %>%
   mutate(data_source = "Methylation")
 
 multi_preds <- read_csv(
   here("outputs", "tables", "multiomic_cv_predictions.csv"),
-  show_col_types = FALSE
-) %>%
+  show_col_types = FALSE) %>%
   mutate(data_source = "Multiomic")
 
 rf_preds <- bind_rows(expr_preds, meth_preds, multi_preds) %>%
@@ -266,13 +239,10 @@ roc_df <- rf_preds %>%
       response = .x$obs,
       predictor = .x$Yes,
       levels = c("No", "Yes"),
-      direction = "<"
-    )
-    
+      direction = "<")
     tibble(
       specificity = roc_obj$specificities,
-      sensitivity = roc_obj$sensitivities
-    )
+      sensitivity = roc_obj$sensitivities)
   }) %>%
   ungroup()
 
@@ -283,14 +253,12 @@ p_roc <- roc_df %>%
     intercept = 0,
     slope = 1,
     linetype = "dashed",
-    colour = "grey50"
-  ) +
+    colour = "grey50") +
   labs(
     title = "ROC curves for Random Forest models",
     x = "False positive rate",
     y = "True positive rate",
-    colour = "Model"
-  ) +
+    colour = "Model") +
   theme_minimal(base_size = 13)
 
 print(p_roc)
@@ -300,7 +268,6 @@ ggsave(
   plot = p_roc,
   width = 8,
   height = 5,
-  dpi = 300
-)
+  dpi = 300)
 ```
 

@@ -142,10 +142,10 @@ sample_manifest <- sample_sheet %>%
 
 ```{r}
 #--------------------------------------------------
-# 4. Build a master file for clinical data
+# 4. Building a master file for clinical data
 #--------------------------------------------------
 
-# Pathology, exposure and family history files were inspected initially, but not retained in the modelling table because the final analysis focuses on omics prediction rather than clinical benchmarking.
+# Pathology, exposure and family history files were inspected initially, but not retained in the modelling table.
 
 clinical_core <- clinical %>%
   transmute(
@@ -156,8 +156,7 @@ clinical_core <- clinical %>%
     gender = demographic_gender,
     race = demographic_race,
     ethnicity = demographic_ethnicity,
-    days_to_death = suppressWarnings(as.numeric(demographic_days_to_death))
-  ) %>%
+    days_to_death = suppressWarnings(as.numeric(demographic_days_to_death))) %>%
   group_by(case_submitter_id) %>%
   summarise(
     case_uuid = first_non_missing(case_uuid),
@@ -167,19 +166,15 @@ clinical_core <- clinical %>%
     race = first_non_missing(race),
     ethnicity = first_non_missing(ethnicity),
     days_to_death = if (all(is.na(days_to_death))) NA_real_ else max(days_to_death, na.rm = TRUE),
-    .groups = "drop"
-  )
+    .groups = "drop")
 
 followup_core <- followup %>%
   transmute(
     case_submitter_id = cases_submitter_id,
-    days_to_follow_up = suppressWarnings(as.numeric(follow_ups_days_to_follow_up))
-  ) %>%
+    days_to_follow_up = suppressWarnings(as.numeric(follow_ups_days_to_follow_up))) %>%
   group_by(case_submitter_id) %>%
-  summarise(
-    days_to_follow_up = if (all(is.na(days_to_follow_up))) NA_real_ else max(days_to_follow_up, na.rm = TRUE),
-    .groups = "drop"
-  )
+  summarise(days_to_follow_up = if (all(is.na(days_to_follow_up))) NA_real_ 
+            else max(days_to_follow_up, na.rm = TRUE),.groups = "drop")
 
 clinical_master <- clinical_core %>%
   left_join(followup_core, by = "case_submitter_id") %>%
@@ -192,13 +187,12 @@ clinical_master <- clinical_core %>%
     race,
     ethnicity,
     days_to_death,
-    days_to_follow_up
-  )
+    days_to_follow_up)
 ```
 
 ```{r}
 #--------------------------------------------------
-# Clinical checks (non-redundant)
+# Clinical checks
 #--------------------------------------------------
 
 clinical_missing_summary <- clinical_master %>%
@@ -284,8 +278,7 @@ merged_clinical_expression <- clinical_master %>%
 #--------------------------------------------------
 meth_files <- list.files(
   here("data", "raw", "MethylationData"),
-  full.names = TRUE
-)
+  full.names = TRUE)
 ```
 
 ```{r}
@@ -293,15 +286,13 @@ meth_lookup <- sample_sheet %>%
   filter(
     str_detect(data_category, regex("methyl", ignore_case = TRUE)) |
       str_detect(data_type, regex("methyl", ignore_case = TRUE)) |
-      str_detect(file_name, regex("methyl", ignore_case = TRUE))
-  ) %>%
+      str_detect(file_name, regex("methyl", ignore_case = TRUE))) %>%
   transmute(
     file_id,
     file_name,
     file_name_stem = str_extract(file_name, "^[^.]+"),
     case_submitter_id = case_id,
-    sample_submitter_id = sample_id
-  ) %>%
+    sample_submitter_id = sample_id) %>%
   distinct()
 
 length(meth_files)
@@ -376,9 +367,7 @@ common_cases <- Reduce(
   list(
     clinical_master$case_submitter_id,
     expr_t$case_submitter_id,
-    meth_t$case_submitter_id
-  )
-)
+    meth_t$case_submitter_id))
 
 expr_t_model <- expr_t %>%
   rename(expression_sample_id = sample_submitter_id)
@@ -413,14 +402,12 @@ id_checks <- tibble(
     n_distinct(meth_t$case_submitter_id),
     n_distinct(merged_clinical_expression$case_submitter_id),
     n_distinct(merged_clinical_methylation$case_submitter_id),
-    n_distinct(merged_clinical_multiomic$case_submitter_id)
-  )
-)
+    n_distinct(merged_clinical_multiomic$case_submitter_id)))
 
 id_checks
 ```
 ```{r}
-# Which cases do not match?
+# Unmatched cases
 
 all_cases <- union(
   union(clinical_master$case_submitter_id, expr_t$case_submitter_id),

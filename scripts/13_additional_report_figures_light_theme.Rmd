@@ -1,0 +1,420 @@
+---
+title: "13_additional_report_figures_light_theme"
+output: html_document
+---
+
+```{r}
+#--------------------------------------------------
+# 1. Load packages
+#--------------------------------------------------
+
+library(tidyverse)
+library(here)
+library(forcats)
+library(scales)
+
+dir.create(here("outputs", "figures", "report_theme"), recursive = TRUE, showWarnings = FALSE)
+dir.create(here("outputs", "tables"), recursive = TRUE, showWarnings = FALSE)
+```
+
+```{r}
+#--------------------------------------------------
+# 2. Light purple + black report theme
+#--------------------------------------------------
+
+theme_report <- function(base_size = 13) {
+  theme_minimal(base_size = base_size) +
+    theme(
+      plot.background = element_rect(fill = "white", colour = NA),
+      panel.background = element_rect(fill = "white", colour = NA),
+      panel.grid.major = element_line(colour = "#E6DFF5", linewidth = 0.35),
+      panel.grid.minor = element_blank(),
+      axis.title = element_text(colour = "black", face = "bold"),
+      axis.text = element_text(colour = "black"),
+      plot.title = element_text(colour = "black", face = "bold", size = base_size + 4),
+      plot.subtitle = element_text(colour = "#4B3B66", size = base_size),
+      legend.title = element_text(colour = "black", face = "bold"),
+      legend.text = element_text(colour = "black"),
+      strip.text = element_text(colour = "black", face = "bold"))
+}
+
+purple_class <- c(
+  "No" = "#111111",
+  "Yes" = "#A78BFA")
+
+purple_source <- c(
+  "Clinical" = "#E9D5FF",
+  "Expression" = "#C4B5FD",
+  "Methylation" = "#8B5CF6",
+  "Multiomic" = "#111111")
+```
+
+```{r}
+#--------------------------------------------------
+# 4. Cohort construction numbers
+#--------------------------------------------------
+
+cohort_construction <- tibble(
+  Dataset = c("Clinical", "Expression", "Methylation", "Multiomic"),
+  `Matched cases` = c(
+    n_distinct(clinical_master$case_submitter_id),
+    n_distinct(expr_data$case_submitter_id),
+    n_distinct(meth_data$case_submitter_id),
+    n_distinct(multi_data$case_submitter_id)),
+  `Labelled cases` = c(
+    sum(!is.na(clinical_master$survival_500)),
+    sum(!is.na(expr_data$survival_500)),
+    sum(!is.na(meth_data$survival_500)),
+    sum(!is.na(multi_data$survival_500))))
+
+cohort_construction
+
+write_csv(
+  cohort_construction,
+  here("outputs", "tables", "cohort_construction_summary.csv"))
+```
+
+```{r}
+#--------------------------------------------------
+# 5. Figure: cohort construction
+#--------------------------------------------------
+
+cohort_plot_df <- cohort_construction %>%
+  pivot_longer(
+    cols = c(`Matched cases`, `Labelled cases`),
+    names_to = "Stage",
+    values_to = "n") %>%
+  mutate(
+    Dataset = factor(Dataset, levels = c("Clinical", "Expression", "Methylation", "Multiomic")),
+    Stage = factor(Stage, levels = c("Matched cases", "Labelled cases")))
+
+p_cohort <- cohort_plot_df %>%
+  ggplot(aes(x = Dataset, y = n, fill = Stage)) +
+  geom_col(position = position_dodge(width = 0.75), width = 0.68) +
+  geom_text(
+    aes(label = n),
+    position = position_dodge(width = 0.75),
+    vjust = -0.35,
+    colour = "black",
+    fontface = "bold",
+    size = 4) +
+  scale_fill_manual(
+    values = c(
+      "Matched cases" = "#C4B5FD",
+      "Labelled cases" = "#111111")) +
+  labs(
+    title = "Cohort construction across modelling datasets",
+    subtitle = "Matched cases and labelled 500-day survival cases",
+    x = NULL,
+    y = "Number of patients",
+    fill = NULL) +
+  theme_report(base_size = 13)
+
+p_cohort
+
+ggsave(
+  here("outputs", "figures", "report_theme", "figure_cohort_construction_light_purple.png"),
+  plot = p_cohort,
+  width = 8.5,
+  height = 5,
+  dpi = 300)
+```
+
+```{r}
+#--------------------------------------------------
+# 6. Clinical missingness summary
+#--------------------------------------------------
+
+clinical_vars <- intersect(
+  c(
+    "age_at_index",
+    "gender",
+    "race",
+    "ethnicity",
+    "days_to_death",
+    "days_to_follow_up",
+    "survival_500"),
+  names(clinical_master))
+
+clinical_missingness <- clinical_master %>%
+  summarise(
+    across(
+      all_of(clinical_vars),
+      ~ mean(is.na(.x)))) %>%
+  pivot_longer(
+    everything(),
+    names_to = "Variable",
+    values_to = "Missing proportion") %>%
+  mutate(
+    `Missing percentage` = `Missing proportion` * 100,
+    Variable = str_replace_all(Variable, "_", " "),
+    Variable = str_to_title(Variable),
+    Variable = fct_reorder(Variable, `Missing percentage`))
+
+clinical_missingness
+
+write_csv(
+  clinical_missingness,
+  here("outputs", "tables", "clinical_missingness_summary.csv"))
+```
+
+```{r}
+#--------------------------------------------------
+# 7. Figure: missingness in clinical variables
+#--------------------------------------------------
+
+p_clinical_missing <- clinical_missingness %>%
+  ggplot(aes(x = `Missing percentage`, y = Variable)) +
+  geom_col(fill = "#8B5CF6", width = 0.7) +
+  geom_text(
+    aes(label = paste0(round(`Missing percentage`, 1), "%")),
+    hjust = -0.15,
+    colour = "black",
+    fontface = "bold",
+    size = 4) +
+  scale_x_continuous(
+    limits = c(0, max(clinical_missingness$`Missing percentage`, na.rm = TRUE) * 1.15)) +
+  labs(
+    title = "Missingness in clinical variables",
+    subtitle = "Proportion of missing values in the clinical master dataset",
+    x = "Missing values (%)",
+    y = NULL) +
+  theme_report(base_size = 13)
+
+p_clinical_missing
+
+ggsave(
+  here("outputs", "figures", "report_theme", "figure_clinical_missingness_light_purple.png"),
+  plot = p_clinical_missing,
+  width = 8.5,
+  height = 5,
+  dpi = 300)
+```
+
+```{r}
+#--------------------------------------------------
+# 8. Load processed matrices for PCA and boxplots
+#--------------------------------------------------
+
+x_expression <- read_rds(here("data", "processed", "x_expression.rds"))
+y_expression <- read_rds(here("data", "processed", "y_expression.rds"))
+
+x_methylation <- read_rds(here("data", "processed", "x_methylation.rds"))
+y_methylation <- read_rds(here("data", "processed", "y_methylation.rds"))
+
+y_expression <- factor(y_expression, levels = c("No", "Yes"))
+y_methylation <- factor(y_methylation, levels = c("No", "Yes"))
+```
+
+```{r}
+#--------------------------------------------------
+# 9. Expression PCA
+#--------------------------------------------------
+
+expr_pca <- prcomp(
+  x_expression,
+  center = TRUE,
+  scale. = TRUE)
+
+expr_pca_var <- expr_pca$sdev^2 / sum(expr_pca$sdev^2)
+
+expr_pca_df <- as_tibble(expr_pca$x[, 1:2]) %>%
+  mutate(
+    survival_500 = y_expression)
+
+p_expr_pca <- expr_pca_df %>%
+  ggplot(aes(x = PC1, y = PC2, colour = survival_500)) +
+  geom_point(size = 2.8, alpha = 0.85) +
+  scale_colour_manual(values = purple_class) +
+  labs(
+    title = "Expression PCA",
+    subtitle = "Principal components based on selected expression features",
+    x = paste0("PC1 (", percent(expr_pca_var[1], accuracy = 0.1), ")"),
+    y = paste0("PC2 (", percent(expr_pca_var[2], accuracy = 0.1), ")"),
+    colour = "Survival > 500 days") +
+  theme_report(base_size = 13)
+
+p_expr_pca
+
+ggsave(
+  here("outputs", "figures", "report_theme", "figure_expression_pca_light_purple.png"),
+  plot = p_expr_pca,
+  width = 8,
+  height = 5,
+  dpi = 300)
+```
+
+```{r}
+#--------------------------------------------------
+# 10. Methylation PCA
+#--------------------------------------------------
+
+meth_pca <- prcomp(
+  x_methylation,
+  center = TRUE,
+  scale. = TRUE)
+
+meth_pca_var <- meth_pca$sdev^2 / sum(meth_pca$sdev^2)
+
+meth_pca_df <- as_tibble(meth_pca$x[, 1:2]) %>%
+  mutate(
+    survival_500 = y_methylation)
+
+p_meth_pca <- meth_pca_df %>%
+  ggplot(aes(x = PC1, y = PC2, colour = survival_500)) +
+  geom_point(size = 2.8, alpha = 0.85) +
+  scale_colour_manual(values = purple_class) +
+  labs(
+    title = "Methylation PCA",
+    subtitle = "Principal components based on selected methylation probes",
+    x = paste0("PC1 (", percent(meth_pca_var[1], accuracy = 0.1), ")"),
+    y = paste0("PC2 (", percent(meth_pca_var[2], accuracy = 0.1), ")"),
+    colour = "Survival > 500 days") +
+  theme_report(base_size = 13)
+
+p_meth_pca
+
+ggsave(
+  here("outputs", "figures", "report_theme", "figure_methylation_pca_light_purple.png"),
+  plot = p_meth_pca,
+  width = 8,
+  height = 5,
+  dpi = 300)
+```
+
+```{r}
+#--------------------------------------------------
+# 11. Load top feature importance tables
+#--------------------------------------------------
+
+top_expr_features <- read_csv(
+  here("outputs", "tables", "expression_rf_top_features.csv"),
+  show_col_types = FALSE) %>%
+  slice_head(n = 5) %>%
+  pull(feature)
+
+top_meth_features <- read_csv(
+  here("outputs", "tables", "methylation_rf_top_features.csv"),
+  show_col_types = FALSE) %>%
+  slice_head(n = 5) %>%
+  pull(feature)
+```
+
+```{r}
+#--------------------------------------------------
+# 12. Helper function for feature boxplots
+#--------------------------------------------------
+
+make_feature_boxplot_df <- function(x, y, selected_features) {
+  x %>%
+    select(all_of(selected_features)) %>%
+    mutate(survival_500 = y) %>%
+    pivot_longer(
+      cols = all_of(selected_features),
+      names_to = "feature",
+      values_to = "value") %>%
+    group_by(feature) %>%
+    mutate(
+      scaled_value = as.numeric(scale(value))) %>%
+    ungroup() %>%
+    mutate(
+      survival_500 = factor(survival_500, levels = c("No", "Yes")))
+}
+```
+
+```{r}
+#--------------------------------------------------
+# 13. Figure: top expression feature boxplots
+#--------------------------------------------------
+
+expr_boxplot_df <- make_feature_boxplot_df(
+  x = x_expression,
+  y = y_expression,
+  selected_features = top_expr_features)
+
+p_expr_boxplot <- expr_boxplot_df %>%
+  ggplot(aes(x = survival_500, y = scaled_value, fill = survival_500)) +
+  geom_boxplot(alpha = 0.8, width = 0.65, outlier.alpha = 0.45) +
+  facet_wrap(~ feature, scales = "free_y", ncol = 3) +
+  scale_fill_manual(values = purple_class) +
+  labs(
+    title = "Top expression features by 500-day survival class",
+    subtitle = "Values standardised within each selected feature",
+    x = "Survival > 500 days",
+    y = "Standardised expression value",
+    fill = "Survival > 500 days") +
+  theme_report(base_size = 12)
+
+p_expr_boxplot
+
+ggsave(
+  here("outputs", "figures", "report_theme", "figure_top_expression_boxplots_light_purple.png"),
+  plot = p_expr_boxplot,
+  width = 9,
+  height = 5.8,
+  dpi = 300)
+```
+
+```{r}
+#--------------------------------------------------
+# 14. Figure: top methylation feature boxplots
+#--------------------------------------------------
+
+meth_boxplot_df <- make_feature_boxplot_df(
+  x = x_methylation,
+  y = y_methylation,
+  selected_features = top_meth_features)
+
+p_meth_boxplot <- meth_boxplot_df %>%
+  ggplot(aes(x = survival_500, y = scaled_value, fill = survival_500)) +
+  geom_boxplot(alpha = 0.8, width = 0.65, outlier.alpha = 0.45) +
+  facet_wrap(~ feature, scales = "free_y", ncol = 3) +
+  scale_fill_manual(values = purple_class) +
+  labs(
+    title = "Top methylation features by 500-day survival class",
+    subtitle = "Values standardised within each selected probe",
+    x = "Survival > 500 days",
+    y = "Standardised methylation value",
+    fill = "Survival > 500 days") +
+  theme_report(base_size = 12)
+
+p_meth_boxplot
+
+ggsave(
+  here("outputs", "figures", "report_theme", "figure_top_methylation_boxplots_light_purple.png"),
+  plot = p_meth_boxplot,
+  width = 9,
+  height = 5.8,
+  dpi = 300)
+```
+
+
+
+```{r}
+#--------------------------------------------------
+# 15. Save figure manifest
+#--------------------------------------------------
+
+additional_figure_manifest <- tibble(
+  figure = c(
+    "Cohort construction",
+    "Clinical missingness",
+    "Expression PCA",
+    "Methylation PCA",
+    "Top expression feature boxplots",
+    "Top methylation feature boxplots"),
+  file = c(
+    "figure_cohort_construction_light_purple.png",
+    "figure_clinical_missingness_light_purple.png",
+    "figure_expression_pca_light_purple.png",
+    "figure_methylation_pca_light_purple.png",
+    "figure_top_expression_boxplots_light_purple.png",
+    "figure_top_methylation_boxplots_light_purple.png"))
+
+write_csv(
+  additional_figure_manifest,
+  here("outputs", "figures", "report_theme", "additional_figure_manifest.csv"))
+
+additional_figure_manifest
+```
+

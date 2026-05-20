@@ -1,0 +1,7 @@
+figure,file
+Cohort construction,figure_cohort_construction_light_purple.png
+Clinical missingness,figure_clinical_missingness_light_purple.png
+Expression PCA,figure_expression_pca_light_purple.png
+Methylation PCA,figure_methylation_pca_light_purple.png
+Top expression feature boxplots,figure_top_expression_boxplots_light_purple.png
+Top methylation feature boxplots,figure_top_methylation_boxplots_light_purple.png
