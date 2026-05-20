@@ -4,19 +4,24 @@ output: html_document
 ---
 
 ```{r}
-#--------------------------------------------------
-# 1. Load packages and interim data
-#--------------------------------------------------
-
 library(tidyverse)
 library(here)
+```
 
-merged_clinical_expression <- read_rds(here("data", "interim", "merged_clinical_expression.rds"))
-merged_clinical_methylation <- read_rds(here("data", "interim", "merged_clinical_methylation.rds"))
-merged_clinical_multiomic <- read_rds(here("data", "interim", "merged_clinical_multiomic.rds"))
+```{r}
+dir.create(here("data", "processed"), recursive = TRUE, showWarnings = FALSE)
+dir.create(here("outputs", "tables"), recursive = TRUE, showWarnings = FALSE)
+```
 
-dir.create(here("data", "processed"), showWarnings = FALSE)
 
+```{r}
+#--------------------------------------------------
+# 1. Load intermediate data
+#--------------------------------------------------
+
+merged_clinical_expression <- read_rds(here("data", "interim", "merged_clinical_expression_with_outcome.rds"))
+merged_clinical_methylation <- read_rds(here("data", "interim", "merged_clinical_methylation_with_outcome.rds"))
+merged_clinical_multiomic <- read_rds(here("data", "interim", "merged_clinical_multiomic_with_outcome.rds"))
 ```
 
 
@@ -32,11 +37,12 @@ prop_missing_vec <- function(x) {
 variance_vec <- function(x) {
   var(x, na.rm = TRUE)
 }
+
 ```
 
 ```{r}
 #--------------------------------------------------
-# 3. Keep only patients with known outcome
+# 3. Keep patients with known outcomes
 #--------------------------------------------------
 
 expr_model <- merged_clinical_expression %>%
@@ -55,51 +61,20 @@ multi_model <- merged_clinical_multiomic %>%
 #--------------------------------------------------
 
 meta_cols <- c(
-  "sample_submitter_id",
   "case_submitter_id",
-  "survival_500",
-  "survival_time_days",
   "case_uuid",
   "project_id",
   "age_at_index",
   "gender",
   "race",
   "ethnicity",
-  "vital_status",
   "days_to_death",
-  "days_to_lost_to_followup",
   "days_to_follow_up",
-  "days_to_progression",
-  "days_to_progression_free",
-  "primary_site",
-  "disease_type",
-  "prior_treatment",
-  "tumor_grade",
-  "primary_diagnosis",
-  "architectural_pattern",
-  "epithelioid_percent",
-  "necrosis_percent",
-  "sarcomatoid_percent",
-  "spindle_cell_percent",
-  "tumor_infiltrating_lymphocytes",
-  "tumor_infiltrating_macrophages",
-  "exposure_type",
-  "asbestos_exposure_type",
-  "smoking_status",
-  "smoking_frequency",
-  "occupation_type",
-  "pack_years_smoked",
-  "cigarettes_per_day",
-  "exposure_duration_years",
-  "occupation_duration_years",
-  "family_cancer_history",
-  "family_cancer_types",
-  "relatives_with_cancer_history_count"
-)
+  "survival_500")
 
-meta_cols_expr <- intersect(meta_cols, names(expr_model))
-meta_cols_meth <- intersect(meta_cols, names(meth_model))
-meta_cols_multi <- intersect(meta_cols, names(multi_model))
+meta_cols_expr <- intersect(c("sample_submitter_id", meta_cols), names(expr_model))
+meta_cols_meth <- intersect(c("sample_submitter_id", meta_cols), names(meth_model))
+meta_cols_multi <- intersect(c("sample_submitter_id_expr", "sample_submitter_id_meth", meta_cols), names(multi_model))
 ```
 
 ```{r}
@@ -110,19 +85,25 @@ meta_cols_multi <- intersect(meta_cols, names(multi_model))
 expr_feature_cols <- setdiff(names(expr_model), meta_cols_expr)
 meth_feature_cols <- setdiff(names(meth_model), meta_cols_meth)
 multi_feature_cols <- setdiff(names(multi_model), meta_cols_multi)
+
+multi_expr_features <- multi_feature_cols[str_detect(multi_feature_cols, "^ENSG")]
+multi_meth_features <- multi_feature_cols[str_detect(multi_feature_cols, "^cg")]
 ```
 
 ```{r}
 #--------------------------------------------------
 # 6. Expression feature filtering
-#    - remove genes with any missing values
+#    - keep complete genes
 #    - remove zero variance genes
-#    - keep top variable genes
+#    - keep top 2000 variable genes
 #--------------------------------------------------
 
 expr_missing <- expr_model %>%
   summarise(across(all_of(expr_feature_cols), prop_missing_vec)) %>%
-  pivot_longer(everything(), names_to = "feature", values_to = "prop_missing")
+  pivot_longer(
+    everything(),
+    names_to = "feature",
+    values_to = "prop_missing")
 
 expr_keep_missing <- expr_missing %>%
   filter(prop_missing == 0) %>%
@@ -131,7 +112,10 @@ expr_keep_missing <- expr_missing %>%
 expr_var <- expr_model %>%
   select(all_of(expr_keep_missing)) %>%
   summarise(across(everything(), variance_vec)) %>%
-  pivot_longer(everything(), names_to = "feature", values_to = "variance")
+  pivot_longer(
+    everything(),
+    names_to = "feature",
+    values_to = "variance")
 
 expr_keep_var <- expr_var %>%
   filter(is.finite(variance), !is.na(variance), variance > 0)
@@ -144,26 +128,31 @@ top_expr_features <- expr_keep_var %>%
   pull(feature)
 
 x_expression <- expr_model %>%
-  select(all_of(top_expr_features))
+  select(all_of(top_expr_features)) %>%
+  mutate(across(everything(), ~ log1p(.x)))
 
 y_expression <- expr_model$survival_500
 
-model_data_expression_only <- expr_model %>%
-  select(all_of(meta_cols_expr), all_of(top_expr_features))
+model_data_expression_only <- bind_cols(
+  expr_model %>% select(all_of(meta_cols_expr)),
+  x_expression)
 ```
 
 ```{r}
 #--------------------------------------------------
 # 7. Methylation feature filtering
-#    - remove probes with >10% missingness
-#    - remove zero/undefined variance probes
-#    - median-impute remaining missing values
-#    - keep top variable probes
+#    - keep probes with <= 10% missingness
+#    - remove zero or undefined variance probes
+#    - median impute remaining missing values
+#    - keep top 2000 variable probes
 #--------------------------------------------------
 
 meth_missing <- meth_model %>%
   summarise(across(all_of(meth_feature_cols), prop_missing_vec)) %>%
-  pivot_longer(everything(), names_to = "feature", values_to = "prop_missing")
+  pivot_longer(
+    everything(),
+    names_to = "feature",
+    values_to = "prop_missing")
 
 meth_keep_missing <- meth_missing %>%
   filter(prop_missing <= 0.10) %>%
@@ -172,7 +161,10 @@ meth_keep_missing <- meth_missing %>%
 meth_var <- meth_model %>%
   select(all_of(meth_keep_missing)) %>%
   summarise(across(everything(), variance_vec)) %>%
-  pivot_longer(everything(), names_to = "feature", values_to = "variance")
+  pivot_longer(
+    everything(),
+    names_to = "feature",
+    values_to = "variance")
 
 meth_keep_var <- meth_var %>%
   filter(is.finite(variance), !is.na(variance), variance > 0)
@@ -188,31 +180,29 @@ x_methylation <- meth_model %>%
   select(all_of(top_meth_features)) %>%
   mutate(across(
     everything(),
-    ~ ifelse(is.na(.x), median(.x, na.rm = TRUE), .x)
-  ))
+    ~ ifelse(is.na(.x), median(.x, na.rm = TRUE), .x)))
 
 y_methylation <- meth_model$survival_500
 
 model_data_methylation_only <- bind_cols(
   meth_model %>% select(all_of(meta_cols_meth)),
-  x_methylation
-)
+  x_methylation)
 ```
 
 ```{r}
 #--------------------------------------------------
 # 8. Multiomic feature filtering
-#    - identify expression-like and methylation-like columns
-#    - apply same logic separately
-#    - combine retained features
+#    - expression: complete, nonzero variance
+#    - methylation: <= 10% missing, nonzero variance, impute
+#    - keep top 1000 expression, top 1000 methylation
 #--------------------------------------------------
-
-multi_expr_features <- multi_feature_cols[str_detect(multi_feature_cols, "^ENSG")]
-multi_meth_features <- multi_feature_cols[str_detect(multi_feature_cols, "^cg")]
 
 multi_expr_missing <- multi_model %>%
   summarise(across(all_of(multi_expr_features), prop_missing_vec)) %>%
-  pivot_longer(everything(), names_to = "feature", values_to = "prop_missing")
+  pivot_longer(
+    everything(),
+    names_to = "feature",
+    values_to = "prop_missing")
 
 multi_expr_keep_missing <- multi_expr_missing %>%
   filter(prop_missing == 0) %>%
@@ -221,7 +211,10 @@ multi_expr_keep_missing <- multi_expr_missing %>%
 multi_expr_var <- multi_model %>%
   select(all_of(multi_expr_keep_missing)) %>%
   summarise(across(everything(), variance_vec)) %>%
-  pivot_longer(everything(), names_to = "feature", values_to = "variance")
+  pivot_longer(
+    everything(),
+    names_to = "feature",
+    values_to = "variance")
 
 multi_expr_keep_var <- multi_expr_var %>%
   filter(is.finite(variance), !is.na(variance), variance > 0)
@@ -235,7 +228,10 @@ top_multi_expr_features <- multi_expr_keep_var %>%
 
 multi_meth_missing <- multi_model %>%
   summarise(across(all_of(multi_meth_features), prop_missing_vec)) %>%
-  pivot_longer(everything(), names_to = "feature", values_to = "prop_missing")
+  pivot_longer(
+    everything(),
+    names_to = "feature",
+    values_to = "prop_missing")
 
 multi_meth_keep_missing <- multi_meth_missing %>%
   filter(prop_missing <= 0.10) %>%
@@ -244,7 +240,10 @@ multi_meth_keep_missing <- multi_meth_missing %>%
 multi_meth_var <- multi_model %>%
   select(all_of(multi_meth_keep_missing)) %>%
   summarise(across(everything(), variance_vec)) %>%
-  pivot_longer(everything(), names_to = "feature", values_to = "variance")
+  pivot_longer(
+    everything(),
+    names_to = "feature",
+    values_to = "variance")
 
 multi_meth_keep_var <- multi_meth_var %>%
   filter(is.finite(variance), !is.na(variance), variance > 0)
@@ -257,14 +256,14 @@ top_multi_meth_features <- multi_meth_keep_var %>%
   pull(feature)
 
 x_multi_expr <- multi_model %>%
-  select(all_of(top_multi_expr_features))
+  select(all_of(top_multi_expr_features)) %>%
+  mutate(across(everything(), ~ log1p(.x)))
 
 x_multi_meth <- multi_model %>%
   select(all_of(top_multi_meth_features)) %>%
   mutate(across(
     everything(),
-    ~ ifelse(is.na(.x), median(.x, na.rm = TRUE), .x)
-  ))
+    ~ ifelse(is.na(.x), median(.x, na.rm = TRUE), .x)))
 
 x_multiomic <- bind_cols(x_multi_expr, x_multi_meth)
 
@@ -272,13 +271,38 @@ y_multiomic <- multi_model$survival_500
 
 model_data_multiomic <- bind_cols(
   multi_model %>% select(all_of(meta_cols_multi)),
-  x_multiomic
-)
+  x_multiomic)
 ```
 
 ```{r}
+any(duplicated(names(x_expression)))
+any(duplicated(names(x_methylation)))
+any(duplicated(names(x_multiomic)))
+```
+
+
+```{r}
+write_csv(
+  tibble(feature = top_expr_features),
+  here("outputs", "tables", "selected_expression_features.csv"))
+
+write_csv(
+  tibble(feature = top_meth_features),
+  here("outputs", "tables", "selected_methylation_features.csv"))
+
+write_csv(
+  tibble(feature = top_multi_expr_features),
+  here("outputs", "tables", "selected_multiomic_expression_features.csv"))
+
+write_csv(
+  tibble(feature = top_multi_meth_features),
+  here("outputs", "tables", "selected_multiomic_methylation_features.csv"))
+```
+
+
+```{r}
 #--------------------------------------------------
-# 9. Save processed datasets
+# 9. Save processed data
 #--------------------------------------------------
 
 write_rds(
@@ -329,6 +353,31 @@ write_rds(
 
 ```{r}
 #--------------------------------------------------
+# 10. Save feature-engineering summary
+#--------------------------------------------------
+
+feature_engineering_summary <- tibble(
+  dataset = c("Expression", "Methylation", "Multiomic"),
+  n_patients = c(nrow(x_expression), nrow(x_methylation), nrow(x_multiomic)),
+  raw_features_considered = c(
+    length(expr_feature_cols),
+    length(meth_feature_cols),
+    length(multi_feature_cols)
+  ),
+  n_features = c(ncol(x_expression), ncol(x_methylation), ncol(x_multiomic))
+)
+
+feature_engineering_summary
+
+write_csv(
+  feature_engineering_summary,
+  here("outputs", "tables", "feature_engineering_summary.csv")
+)
+```
+
+
+```{r}
+#--------------------------------------------------
 # 11. Final checks
 #--------------------------------------------------
 
@@ -343,5 +392,8 @@ dim(x_multiomic)
 table(y_expression)
 table(y_methylation)
 table(y_multiomic)
-```
 
+anyNA(x_expression)
+anyNA(x_methylation)
+anyNA(x_multiomic)
+```

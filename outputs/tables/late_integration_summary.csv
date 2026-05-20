@@ -1,0 +1,6 @@
+model,auc
+Expression_RF,0.7203884711779454
+Methylation_RF,0.7339598997493733
+LateIntegration_Average,0.7439598997493734
+LateIntegration_Stacked,0.7373433583959901
+DirectIntegration_Multiomic_RF,0.756604010025062

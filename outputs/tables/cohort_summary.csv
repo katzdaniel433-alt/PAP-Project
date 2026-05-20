@@ -1,0 +1,5 @@
+cohort,n_rows,n_unique_cases,n_labelled_500
+clinical_master,86,86,0
+expression_only,85,85,0
+methylation_only,86,86,0
+multiomic,85,85,0

@@ -10,11 +10,13 @@ library(here)
 library(readr)
 library(stringr)
 library(tibble)
+library(scales)
+library(purrr)
 ```
 
 ```{r}
 #--------------------------------------------------
-# 0. Helper function
+# Helper functions
 #--------------------------------------------------
 
 fix_missing <- function(df) {
@@ -28,6 +30,11 @@ fix_missing <- function(df) {
           na_if("")
       )
     )
+}
+
+first_non_missing <- function(x) {
+  x <- x[!is.na(x) & x != ""]
+  if (length(x) == 0) NA else x[1]
 }
 ```
 
@@ -74,7 +81,7 @@ expr_raw <- read_csv(
 
 ```{r}
 #--------------------------------------------------
-# 2. Clean names + fix missing values
+# 2. Cleaning + Fix missing values
 #--------------------------------------------------
 
 sample_sheet <- sample_sheet_raw %>%
@@ -101,7 +108,8 @@ family <- family_raw %>%
   clean_names() %>%
   fix_missing()
 
-expr <- expr_raw 
+expr <- expr_raw %>% 
+  fix_missing()
 ```
 
 ```{r}
@@ -112,7 +120,7 @@ table(clinical$demographic_vital_status, useNA = "ifany")
 
 ```{r}
 #--------------------------------------------------
-# 3. Build sample manifest
+# 3. Sample manifest
 #--------------------------------------------------
 
 sample_manifest <- sample_sheet %>%
@@ -130,186 +138,103 @@ sample_manifest <- sample_sheet %>%
     preservation_method
   ) %>%
   distinct()
-
-# quick flags
-sample_manifest <- sample_manifest %>%
-  mutate(
-    has_methylation = data_category == "DNA Methylation",
-    has_expression_file = str_detect(
-      file_name,
-      regex("rna|gene|count|star|htseq", ignore_case = TRUE)
-    )
-  )
 ```
 
 ```{r}
 #--------------------------------------------------
-# 4. Build patient-level clinical master
+# 4. Building a master file for clinical data
 #--------------------------------------------------
+
+# Pathology, exposure and family history files were inspected initially, but not retained in the modelling table.
 
 clinical_core <- clinical %>%
   transmute(
     case_submitter_id = cases_submitter_id,
     case_uuid = cases_case_id,
     project_id = project_project_id,
-    age_at_index = demographic_age_at_index,
+    age_at_index = suppressWarnings(as.numeric(demographic_age_at_index)),
     gender = demographic_gender,
     race = demographic_race,
     ethnicity = demographic_ethnicity,
-    vital_status = demographic_vital_status,
-    days_to_death = suppressWarnings(as.numeric(demographic_days_to_death)),
-    days_to_lost_to_followup = suppressWarnings(as.numeric(cases_days_to_lost_to_followup)),
-    primary_site = cases_primary_site,
-    disease_type = cases_disease_type,
-    prior_treatment = diagnoses_prior_treatment,
-    tumor_grade = diagnoses_tumor_grade,
-    primary_diagnosis = diagnoses_primary_diagnosis
-  ) %>%
+    days_to_death = suppressWarnings(as.numeric(demographic_days_to_death))) %>%
   group_by(case_submitter_id) %>%
   summarise(
-    case_uuid = first(na.omit(case_uuid)),
-    project_id = first(na.omit(project_id)),
-    age_at_index = first(na.omit(age_at_index)),
-    gender = first(na.omit(gender)),
-    race = first(na.omit(race)),
-    ethnicity = first(na.omit(ethnicity)),
-    vital_status = first(na.omit(vital_status)),
+    case_uuid = first_non_missing(case_uuid),
+    project_id = first_non_missing(project_id),
+    age_at_index = first_non_missing(age_at_index),
+    gender = first_non_missing(gender),
+    race = first_non_missing(race),
+    ethnicity = first_non_missing(ethnicity),
     days_to_death = if (all(is.na(days_to_death))) NA_real_ else max(days_to_death, na.rm = TRUE),
-    days_to_lost_to_followup = if (all(is.na(days_to_lost_to_followup))) NA_real_ else max(days_to_lost_to_followup, na.rm = TRUE),
-    primary_site = first(na.omit(primary_site)),
-    disease_type = first(na.omit(disease_type)),
-    prior_treatment = first(na.omit(prior_treatment)),
-    tumor_grade = first(na.omit(tumor_grade)),
-    primary_diagnosis = first(na.omit(primary_diagnosis)),
-    .groups = "drop"
-  )
+    .groups = "drop")
 
 followup_core <- followup %>%
   transmute(
     case_submitter_id = cases_submitter_id,
-    days_to_follow_up = suppressWarnings(as.numeric(follow_ups_days_to_follow_up)),
-    days_to_progression = suppressWarnings(as.numeric(follow_ups_days_to_progression)),
-    days_to_progression_free = suppressWarnings(as.numeric(follow_ups_days_to_progression_free))
-  ) %>%
+    days_to_follow_up = suppressWarnings(as.numeric(follow_ups_days_to_follow_up))) %>%
   group_by(case_submitter_id) %>%
-  summarise(
-    days_to_follow_up = if (all(is.na(days_to_follow_up))) NA_real_ else max(days_to_follow_up, na.rm = TRUE),
-    days_to_progression = if (all(is.na(days_to_progression))) NA_real_ else max(days_to_progression, na.rm = TRUE),
-    days_to_progression_free = if (all(is.na(days_to_progression_free))) NA_real_ else max(days_to_progression_free, na.rm = TRUE),
-    .groups = "drop"
-  )
-
-pathology_core <- pathology %>%
-  transmute(
-    case_submitter_id = cases_submitter_id,
-    architectural_pattern = pathology_details_morphologic_architectural_pattern,
-    epithelioid_percent = pathology_details_epithelioid_cell_percent,
-    necrosis_percent = pathology_details_necrosis_percent,
-    sarcomatoid_percent = pathology_details_sarcomatoid_percent,
-    spindle_cell_percent = pathology_details_spindle_cell_percent,
-    tumor_infiltrating_lymphocytes = pathology_details_tumor_infiltrating_lymphocytes,
-    tumor_infiltrating_macrophages = pathology_details_tumor_infiltrating_macrophages
-  ) %>%
-  distinct()
-
-exposure_core <- exposure %>%
-  transmute(
-    case_submitter_id = cases_submitter_id,
-    exposure_type = exposures_exposure_type,
-    asbestos_exposure_type = exposures_asbestos_exposure_type,
-    smoking_status = exposures_tobacco_smoking_status,
-    smoking_frequency = exposures_smoking_frequency,
-    pack_years_smoked = exposures_pack_years_smoked,
-    cigarettes_per_day = exposures_cigarettes_per_day,
-    exposure_duration_years = exposures_exposure_duration_years,
-    occupation_duration_years = exposures_occupation_duration_years,
-    occupation_type = exposures_occupation_type
-  )
-
-# collapse exposure to one row per case
-exposure_core <- exposure_core %>%
-  group_by(case_submitter_id) %>%
-  summarise(
-    exposure_type = paste(unique(na.omit(exposure_type)), collapse = "; "),
-    asbestos_exposure_type = paste(unique(na.omit(asbestos_exposure_type)), collapse = "; "),
-    smoking_status = paste(unique(na.omit(smoking_status)), collapse = "; "),
-    smoking_frequency = paste(unique(na.omit(smoking_frequency)), collapse = "; "),
-    occupation_type = paste(unique(na.omit(occupation_type)), collapse = "; "),
-    pack_years_smoked = {
-      x <- suppressWarnings(as.numeric(pack_years_smoked))
-      if (all(is.na(x))) NA_real_ else max(x, na.rm = TRUE)
-    },
-    cigarettes_per_day = {
-      x <- suppressWarnings(as.numeric(cigarettes_per_day))
-      if (all(is.na(x))) NA_real_ else max(x, na.rm = TRUE)
-    },
-    exposure_duration_years = {
-      x <- suppressWarnings(as.numeric(exposure_duration_years))
-      if (all(is.na(x))) NA_real_ else max(x, na.rm = TRUE)
-    },
-    occupation_duration_years = {
-      x <- suppressWarnings(as.numeric(occupation_duration_years))
-      if (all(is.na(x))) NA_real_ else max(x, na.rm = TRUE)
-    },
-    .groups = "drop"
-  )
-
-family_core <- family %>%
-  transmute(
-    case_submitter_id = cases_submitter_id,
-    relationship_type = family_histories_relationship_type,
-    relationship_primary_diagnosis = family_histories_relationship_primary_diagnosis,
-    relative_with_cancer_history = family_histories_relative_with_cancer_history,
-    relatives_with_cancer_history_count = family_histories_relatives_with_cancer_history_count
-  ) %>%
-  group_by(case_submitter_id) %>%
-  summarise(
-    family_cancer_history = if_else(
-      any(relative_with_cancer_history == "yes", na.rm = TRUE),
-      "yes",
-      "no"
-    ),
-    family_cancer_types = paste(unique(na.omit(relationship_primary_diagnosis)), collapse = "; "),
-    relatives_with_cancer_history_count = {
-      x <- suppressWarnings(as.numeric(relatives_with_cancer_history_count))
-      if (all(is.na(x))) NA_real_ else max(x, na.rm = TRUE)
-    },
-    .groups = "drop"
-  )
+  summarise(days_to_follow_up = if (all(is.na(days_to_follow_up))) NA_real_ 
+            else max(days_to_follow_up, na.rm = TRUE),.groups = "drop")
 
 clinical_master <- clinical_core %>%
   left_join(followup_core, by = "case_submitter_id") %>%
-  left_join(pathology_core, by = "case_submitter_id") %>%
-  left_join(exposure_core, by = "case_submitter_id") %>%
-  left_join(family_core, by = "case_submitter_id")
+  select(
+    case_submitter_id,
+    case_uuid,
+    project_id,
+    age_at_index,
+    gender,
+    race,
+    ethnicity,
+    days_to_death,
+    days_to_follow_up)
 ```
 
 ```{r}
 #--------------------------------------------------
-# 5. Create outcome variable
+# Clinical checks
 #--------------------------------------------------
 
-clinical_master <- clinical_master %>%
-  mutate(
-    days_to_death = as.numeric(days_to_death),
-    days_to_follow_up = as.numeric(days_to_follow_up),
-    survival_time_days = coalesce(days_to_death, days_to_follow_up),
-    survival_500 = case_when(
-      !is.na(days_to_death) & days_to_death > 500 ~ "Yes",
-      !is.na(days_to_death) & days_to_death <= 500 ~ "No",
-      is.na(days_to_death) & !is.na(days_to_follow_up) & days_to_follow_up > 500 ~ "Yes",
-      TRUE ~ NA_character_
-    ),
-    survival_500 = factor(survival_500, levels = c("No", "Yes"))
-  )
+clinical_missing_summary <- clinical_master %>%
+  summarise(across(everything(), ~ mean(is.na(.)))) %>%
+  pivot_longer(
+    everything(),
+    names_to = "variable",
+    values_to = "missing_prop"
+  ) %>%
+  arrange(desc(missing_prop))
+
+clinical_missing_summary
+```
+
+```{r}
+clinical_master %>%
+  count(case_submitter_id) %>%
+  filter(n > 1)
+```
+
+```{r}
+clinical_missing_summary %>%
+  ggplot(aes(x = reorder(variable, missing_prop), y = missing_prop)) +
+  geom_col() +
+  coord_flip() +
+  scale_y_continuous(labels = percent) +
+  labs(
+    title = "Missingness in compact clinical table",
+    x = NULL,
+    y = "Proportion missing"
+  ) +
+  theme_minimal()
 ```
 
 ```{r}
 #--------------------------------------------------
-# 6. Clean expression matrix
+# 6. Expression matrix + Cleaning
 #--------------------------------------------------
 
-# remove version suffix from Ensembl IDs if wanted
+# Expression values are retained as counts at this stage.
+# Normalisation or transformation will be handled during feature engineering.
+
 expr_clean <- expr %>%
   rename(gene_id = 1) %>%
   mutate(gene_id = str_remove(gene_id, "\\..*$")) %>%
@@ -320,7 +245,6 @@ expr_clean <- expr %>%
 sum(duplicated(expr_clean$gene_id))
 dim(expr_clean)
 
-# transpose: rows become samples, columns become genes
 expr_t <- expr_clean %>%
   column_to_rownames("gene_id") %>%
   t() %>%
@@ -330,17 +254,18 @@ expr_t <- expr_clean %>%
   mutate(
     case_submitter_id = str_sub(sample_submitter_id, 1, 12)
   ) %>%
-  relocate(case_submitter_id, .after = sample_submitter_id) %>%
+  relocate(case_submitter_id, .after = sample_submitter_id) %>% 
   distinct(case_submitter_id, .keep_all = TRUE)
 
-# if there are duplicate samples per patient, keep the first for now
-expr_t <- expr_t %>%
-  distinct(case_submitter_id, .keep_all = TRUE)
+# Retain one expression sample per case
+
+sum(duplicated(expr_t$case_submitter_id))
+sum(duplicated(expr_t$sample_submitter_id))
 ```
 
 ```{r}
 #--------------------------------------------------
-# 7. Merge clinical + expression
+# 7. Merge clinical + expression data
 #--------------------------------------------------
 
 merged_clinical_expression <- clinical_master %>%
@@ -349,151 +274,76 @@ merged_clinical_expression <- clinical_master %>%
 
 ```{r}
 #--------------------------------------------------
-# 8. Save interim outputs
+# 8. Methylation matrix
 #--------------------------------------------------
-
-write_rds(sample_manifest, here("data", "interim", "sample_manifest.rds"))
-write_rds(clinical_master, here("data", "interim", "clinical_master.rds"))
-write_rds(expr_t, here("data", "interim", "expression_clean.rds"))
-write_rds(merged_clinical_expression, here("data", "interim", "merged_clinical_expression.rds"))
-```
-
-
-
-```{r}
-#--------------------------------------------------
-# 9. Checks
-#--------------------------------------------------
-dim(clinical_master)
-dim(expr_t)
-dim(merged_clinical_expression)
-
-length(unique(clinical_master$case_submitter_id))
-length(unique(expr_t$case_submitter_id))
-length(intersect(clinical_master$case_submitter_id, expr_t$case_submitter_id))
-```
-
-```{r}
-table(clinical_master$survival_500, useNA = "ifany")
-summary(clinical_master$survival_time_days)
-```
-
-```{r}
-head(expr_t$sample_submitter_id, 10)
-head(expr_t$case_submitter_id, 10)
-head(clinical_master$case_submitter_id, 10)
-```
-
-```{r}
-dim(expr_clean)
-sum(duplicated(expr_clean$gene_id))
-names(expr_t)[1:10]
-```
-
-```{r}
-names(expr_t)[1:10]
-head(expr_t$sample_submitter_id, 5)
-head(expr_t$case_submitter_id, 5)
-length(intersect(clinical_master$case_submitter_id, expr_t$case_submitter_id))
-dim(merged_clinical_expression)
-table(clinical_master$survival_500, useNA = "ifany")
-```
-
-```{r}
-clinical_master %>% count(case_submitter_id) %>% filter(n > 1)
-expr_t %>% count(case_submitter_id) %>% filter(n > 1)
-merged_clinical_expression %>% count(case_submitter_id) %>% filter(n > 1)
-```
-
-```{r}
-clinical_master %>%
-  filter(is.na(survival_500)) %>%
-  select(case_submitter_id, vital_status, days_to_death, days_to_follow_up, survival_time_days)
-```
-
-```{r}
-setdiff(clinical_master$case_submitter_id, expr_t$case_submitter_id)
-setdiff(expr_t$case_submitter_id, clinical_master$case_submitter_id)
-```
-
-```{r}
-#--------------------------------------------------
-# 10. Methylation Matrix
-#--------------------------------------------------
-
 meth_files <- list.files(
   here("data", "raw", "MethylationData"),
-  full.names = TRUE
-)
-
+  full.names = TRUE)
 ```
 
 ```{r}
 meth_lookup <- sample_sheet %>%
   filter(
     str_detect(data_category, regex("methyl", ignore_case = TRUE)) |
-    str_detect(data_type, regex("methyl", ignore_case = TRUE)) |
-    str_detect(file_name, regex("methyl", ignore_case = TRUE))
-  ) %>%
+      str_detect(data_type, regex("methyl", ignore_case = TRUE)) |
+      str_detect(file_name, regex("methyl", ignore_case = TRUE))) %>%
   transmute(
     file_id,
     file_name,
+    file_name_stem = str_extract(file_name, "^[^.]+"),
     case_submitter_id = case_id,
-    sample_submitter_id = sample_id
-  ) %>%
+    sample_submitter_id = sample_id) %>%
   distinct()
-```
 
-```{r}
+length(meth_files)
+nrow(meth_lookup)
+
 read_meth_file <- function(path, meth_lookup) {
   file_base <- basename(path)
-  file_id_from_path <- str_extract(file_base, "^[^.]+")
+  file_stem_from_path <- str_extract(file_base, "^[^.]+")
   
   matched_row <- meth_lookup %>%
-    filter(file_id == file_id_from_path)
+    filter(file_name_stem == file_stem_from_path)
   
   if (nrow(matched_row) == 0) {
-    warning("No sample-sheet match found for file_id: ", file_id_from_path)
+    warning("No sample-sheet match found for file stem: ", file_stem_from_path)
     return(NULL)
   }
   
   sample_id <- matched_row$sample_submitter_id[1]
   
-  df <- read_tsv(path, show_col_types = FALSE) %>%
+  read_tsv(path, show_col_types = FALSE) %>%
     rename(
       probe_id = 1,
       !!sample_id := 2
     ) %>%
     mutate(!!sample_id := as.numeric(.data[[sample_id]]))
-  
-  df
 }
 ```
 
 ```{r}
 meth_list <- lapply(meth_files, read_meth_file, meth_lookup = meth_lookup)
-
 meth_list <- meth_list[!sapply(meth_list, is.null)]
+
+length(meth_list)
+
+if (length(meth_list) == 0) {
+  stop("All methylation files returned NULL. Check file_id matching.")
+}
+
+meth_match_check <- tibble(
+  n_files_found = length(meth_files),
+  n_files_read = length(meth_list),
+  n_lookup_rows = nrow(meth_lookup)
+)
+
+meth_match_check
 
 meth_wide <- reduce(meth_list, full_join, by = "probe_id")
 ```
 
 ```{r}
-dim(meth_wide)
-names(meth_wide)[1:10]
-head(meth_wide[, 1:5])
-```
-
-```{r}
-sum(duplicated(meth_wide$probe_id))
-```
-
-```{r}
-meth_clean <- meth_wide
-```
-
-```{r}
-meth_t <- meth_clean %>%
+meth_t <- meth_wide %>%
   column_to_rownames("probe_id") %>%
   t() %>%
   as.data.frame() %>%
@@ -517,60 +367,97 @@ common_cases <- Reduce(
   list(
     clinical_master$case_submitter_id,
     expr_t$case_submitter_id,
-    meth_t$case_submitter_id
-  )
-)
+    meth_t$case_submitter_id))
+
+expr_t_model <- expr_t %>%
+  rename(expression_sample_id = sample_submitter_id)
+
+meth_t_model <- meth_t %>%
+  rename(methylation_sample_id = sample_submitter_id)
 
 merged_clinical_multiomic <- clinical_master %>%
   filter(case_submitter_id %in% common_cases) %>%
-  inner_join(expr_t, by = "case_submitter_id") %>%
-  inner_join(meth_t, by = c("case_submitter_id", "sample_submitter_id"), suffix = c("_expr", "_meth"))
+  inner_join(expr_t_model, by = "case_submitter_id") %>%
+  inner_join(meth_t_model, by = "case_submitter_id")
 ```
 
 ```{r}
+#--------------------------------------------------
+# 9. ID checks
+#--------------------------------------------------
+
+id_checks <- tibble(
+  object = c("clinical_master", "expr_t", "meth_t", "merged_clinical_expression", "merged_clinical_methylation", "merged_clinical_multiomic"),
+  n_rows = c(
+    nrow(clinical_master),
+    nrow(expr_t),
+    nrow(meth_t),
+    nrow(merged_clinical_expression),
+    nrow(merged_clinical_methylation),
+    nrow(merged_clinical_multiomic)
+  ),
+  n_unique_cases = c(
+    n_distinct(clinical_master$case_submitter_id),
+    n_distinct(expr_t$case_submitter_id),
+    n_distinct(meth_t$case_submitter_id),
+    n_distinct(merged_clinical_expression$case_submitter_id),
+    n_distinct(merged_clinical_methylation$case_submitter_id),
+    n_distinct(merged_clinical_multiomic$case_submitter_id)))
+
+id_checks
+```
+```{r}
+# Unmatched cases
+
+all_cases <- union(
+  union(clinical_master$case_submitter_id, expr_t$case_submitter_id),
+  meth_t$case_submitter_id
+)
+
+case_match_check <- tibble(
+  case_submitter_id = all_cases,
+  in_clinical = case_submitter_id %in% clinical_master$case_submitter_id,
+  in_expression = case_submitter_id %in% expr_t$case_submitter_id,
+  in_methylation = case_submitter_id %in% meth_t$case_submitter_id
+) %>%
+  mutate(
+    complete_multiomic = in_clinical & in_expression & in_methylation
+  ) %>%
+  filter(!complete_multiomic)
+
+case_match_check
+
+case_match_check %>%
+  mutate(
+    missing_from = case_when(
+      !in_clinical ~ "clinical_master",
+      !in_expression ~ "expression",
+      !in_methylation ~ "methylation",
+      TRUE ~ "none"
+    )
+  )
+```
+
+```{r}
+clinical_master %>% count(case_submitter_id) %>% filter(n > 1)
+expr_t %>% count(case_submitter_id) %>% filter(n > 1)
+meth_t %>% count(case_submitter_id) %>% filter(n > 1)
+```
+
+```{r}
+#--------------------------------------------------
+# 10. Save outputs
+#--------------------------------------------------
+
+write_rds(sample_manifest, here("data", "interim", "sample_manifest.rds"))
+write_rds(clinical_master, here("data", "interim", "clinical_master.rds"))
+
+write_rds(expr_t, here("data", "interim", "expression_clean.rds"))
+write_rds(merged_clinical_expression, here("data", "interim", "merged_clinical_expression.rds"))
+
 write_rds(meth_wide, here("data", "interim", "methylation_matrix_wide.rds"))
 write_rds(meth_t, here("data", "interim", "methylation_clean.rds"))
 write_rds(merged_clinical_methylation, here("data", "interim", "merged_clinical_methylation.rds"))
+
 write_rds(merged_clinical_multiomic, here("data", "interim", "merged_clinical_multiomic.rds"))
 ```
-
-```{r}
-# Checks
-head(meth_files, 3)
-head(meth_lookup, 3)
-basename(meth_files[1])
-```
-
-```{r}
-unique(sample_sheet$data_category)
-
-sample_sheet %>%
-  count(data_category, data_type, sort = TRUE)
-```
-
-```{r}
-head(meth_lookup, 5)
-nrow(meth_lookup)
-```
-
-```{r}
-nrow(meth_lookup)
-length(meth_files)
-length(meth_list)
-dim(meth_wide)
-dim(meth_t)
-dim(merged_clinical_methylation)
-
-head(meth_t$sample_submitter_id, 5)
-head(meth_t$case_submitter_id, 5)
-
-length(intersect(clinical_master$case_submitter_id, meth_t$case_submitter_id))
-```
-
-```{r}
-length(intersect(expr_t$case_submitter_id, meth_t$case_submitter_id))
-
-setdiff(meth_t$case_submitter_id, expr_t$case_submitter_id)
-setdiff(expr_t$case_submitter_id, meth_t$case_submitter_id)
-```
-

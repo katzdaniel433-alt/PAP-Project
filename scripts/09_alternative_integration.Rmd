@@ -1,0 +1,230 @@
+---
+title: "09_alternative_integration"
+output: html_document
+---
+
+```{r}
+#--------------------------------------------------
+# 1. Load packages and processed data
+#--------------------------------------------------
+
+library(tidyverse)
+library(here)
+library(caret)
+library(glmnet)
+library(ranger)
+library(pROC)
+
+model_data_expression_only <- read_rds(
+  here("data", "processed", "model_data_expression_only.rds"))
+
+model_data_methylation_only <- read_rds(
+  here("data", "processed", "model_data_methylation_only.rds"))
+
+model_rf_expr <- readRDS(here("outputs", "model_objects", "model_rf_expression.rds"))
+model_rf_meth <- readRDS(here("outputs", "model_objects", "model_rf_methylation.rds"))
+
+dir.create(here("outputs", "tables"), recursive = TRUE, showWarnings = FALSE)
+dir.create(here("outputs", "figures"), recursive = TRUE, showWarnings = FALSE)
+```
+
+```{r}
+#--------------------------------------------------
+# 2. Only common cases
+#--------------------------------------------------
+
+expr_df <- model_data_expression_only %>%
+  select(case_submitter_id, survival_500, starts_with("ENSG"))
+
+
+meth_df <- model_data_methylation_only %>%
+  select(case_submitter_id, survival_500, starts_with("cg"))
+
+common_cases <- intersect(expr_df$case_submitter_id, meth_df$case_submitter_id)
+
+expr_df <- expr_df %>%
+  filter(case_submitter_id %in% common_cases) %>%
+  arrange(case_submitter_id)
+
+expr_feature_cols <- names(expr_df)[str_detect(names(expr_df), "^ENSG")]
+
+expr_df <- expr_df %>%
+  mutate(across(all_of(expr_feature_cols), ~ log1p(.x)))
+
+summary(as.matrix(expr_df %>% select(starts_with("ENSG")))[, 1:5])
+
+meth_df <- meth_df %>%
+  filter(case_submitter_id %in% common_cases) %>%
+  arrange(case_submitter_id)
+
+stopifnot(all(expr_df$case_submitter_id == meth_df$case_submitter_id))
+stopifnot(all(expr_df$survival_500 == meth_df$survival_500))
+
+y_common <- factor(expr_df$survival_500, levels = c("No", "Yes"))
+
+x_expr <- expr_df %>%
+  select(-case_submitter_id, -survival_500)
+
+x_meth <- meth_df %>%
+  select(-case_submitter_id, -survival_500)
+```
+
+```{r}
+#--------------------------------------------------
+# 3. Shared resampling folds
+#--------------------------------------------------
+
+set.seed(123)
+
+fold_index <- createMultiFolds(y_common, k = 5, times = 5)
+
+fold_results <- vector("list", length(fold_index))
+fold_names <- names(fold_index)
+```
+
+```{r}
+#--------------------------------------------------
+# 4. Loop over folds
+#--------------------------------------------------
+
+for (i in seq_along(fold_index)) {
+  
+  train_idx <- fold_index[[i]]
+  test_idx <- setdiff(seq_len(nrow(x_expr)), train_idx)
+  
+  x_expr_train <- x_expr[train_idx, , drop = FALSE]
+  x_expr_test  <- x_expr[test_idx, , drop = FALSE]
+  
+  x_meth_train <- x_meth[train_idx, , drop = FALSE]
+  x_meth_test  <- x_meth[test_idx, , drop = FALSE]
+  
+  y_train <- y_common[train_idx]
+  y_test  <- y_common[test_idx]
+  
+expr_best <- model_rf_expr$bestTune
+meth_best <- model_rf_meth$bestTune
+  
+  rf_expr <- ranger(
+    x = x_expr_train,
+    y = y_train,
+    probability = TRUE,
+    num.trees = 1000,
+    mtry = expr_best$mtry,
+    min.node.size = expr_best$min.node.size,
+    importance = "impurity",
+    seed = 123)
+  
+  pred_expr <- predict(rf_expr, data = x_expr_test)$predictions[, "Yes"]
+  pred_expr_train <- predict(rf_expr, data = x_expr_train)$predictions[, "Yes"]
+  
+  rf_meth <- ranger(
+    x = x_meth_train,
+    y = y_train,
+    probability = TRUE,
+    num.trees = 1000,
+    mtry = meth_best$mtry,
+    min.node.size = meth_best$min.node.size,
+    importance = "impurity",
+    seed = 123)
+  
+  pred_meth <- predict(rf_meth, data = x_meth_test)$predictions[, "Yes"]
+  pred_meth_train <- predict(rf_meth, data = x_meth_train)$predictions[, "Yes"]
+  
+  pred_avg <- (pred_expr + pred_meth) / 2
+  
+  stack_train <- tibble(
+    expr_prob = pred_expr_train,
+    meth_prob = pred_meth_train,
+    survival_500 = y_train)
+  
+  stack_test <- tibble(
+    expr_prob = pred_expr,
+    meth_prob = pred_meth)
+  
+  meta_fit <- glm(
+    survival_500 ~ expr_prob + meth_prob,
+    data = stack_train,
+    family = binomial())
+  
+  pred_stack <- predict(meta_fit, newdata = stack_test, type = "response")
+  
+  fold_results[[i]] <- tibble(
+    case_submitter_id = expr_df$case_submitter_id[test_idx],
+    obs = y_test,
+    expr_prob = pred_expr,
+    meth_prob = pred_meth,
+    late_avg_prob = pred_avg,
+    late_stack_prob = pred_stack,
+    Resample = fold_names[i])
+}
+
+oof_predictions <- bind_rows(fold_results)
+```
+
+```{r}
+#--------------------------------------------------
+# 5. Evaluate AUCs
+#--------------------------------------------------
+
+late_integration_summary <- tibble(
+  model = c("Expression_RF", "Methylation_RF", "LateIntegration_Average", "LateIntegration_Stacked"),
+  auc = c(
+    as.numeric(roc(oof_predictions$obs, oof_predictions$expr_prob, levels = c("No", "Yes"), direction = "<")$auc),
+    as.numeric(roc(oof_predictions$obs, oof_predictions$meth_prob, levels = c("No", "Yes"), direction = "<")$auc),
+    as.numeric(roc(oof_predictions$obs, oof_predictions$late_avg_prob, levels = c("No", "Yes"), direction = "<")$auc),
+    as.numeric(roc(oof_predictions$obs, oof_predictions$late_stack_prob, levels = c("No", "Yes"), direction = "<")$auc)))
+
+print(late_integration_summary)
+
+final_model_comparison <- read_csv(
+  here("outputs", "tables", "final_model_comparison.csv"),
+  show_col_types = FALSE)
+
+direct_multiomic_rf <- final_model_comparison %>%
+  filter(data_source == "Multiomic", model %in% c("RandomForest", "Random Forest")) %>%
+  transmute(
+    model = "DirectIntegration_Multiomic_RF",
+    auc = auc)
+
+late_integration_summary <- bind_rows(
+  late_integration_summary,
+  direct_multiomic_rf)
+
+write_csv(
+  oof_predictions,
+  here("outputs", "tables", "late_integration_oof_predictions.csv"))
+
+write_csv(
+  late_integration_summary,
+  here("outputs", "tables", "late_integration_summary.csv"))
+```
+
+```{r}
+p_late_integration <- late_integration_summary %>%
+  mutate(model = fct_reorder(model, auc)) %>%
+  ggplot(aes(x = auc, y = model)) +
+  geom_col(fill = "#F59E0B", width = 0.7) +
+  geom_text(
+    aes(label = sprintf("%.3f", auc)),
+    hjust = -0.15,
+    colour = "black",
+    fontface = "bold",
+    size = 4) +
+  scale_x_continuous(
+    limits = c(0, max(late_integration_summary$auc, na.rm = TRUE) * 1.12)) +
+  labs(
+    title = "Alternative integration check",
+    x = "Out-of-fold AUC",
+    y = NULL) +
+  theme_minimal(base_size = 13)
+
+p_late_integration
+
+ggsave(
+  here("outputs", "figures", "late_integration_auc.png"),
+  plot = p_late_integration,
+  width = 8,
+  height = 4.5,
+  dpi = 300)
+```
+

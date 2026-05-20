@@ -1,0 +1,35 @@
+---
+title: "07e_extended_comparison"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(here)
+
+final_model_comparison <- read_csv(
+  here("outputs", "tables", "final_model_comparison.csv"),
+  show_col_types = FALSE
+)
+
+late_integration_summary <- read_csv(
+  here("outputs", "tables", "late_integration_summary.csv"),
+  show_col_types = FALSE
+)
+
+sensitivity_results <- read_csv(
+  here("outputs", "tables", "sensitivity_analysis_results.csv"),
+  show_col_types = FALSE
+)
+
+extended_report_table <- final_model_comparison %>%
+  select(data_source, model, auc, ROC, Sens, Spec)
+
+print(extended_report_table)
+
+write_csv(
+  extended_report_table,
+  here("outputs", "tables", "extended_report_table.csv")
+)
+```
+

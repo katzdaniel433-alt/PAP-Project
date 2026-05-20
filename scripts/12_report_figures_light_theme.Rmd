@@ -1,0 +1,447 @@
+---
+title: "12_report_figures_light_theme"
+output: html_document
+---
+
+```{r}
+#--------------------------------------------------
+# 1. Load packages
+#--------------------------------------------------
+
+library(tidyverse)
+library(here)
+library(pROC)
+library(forcats)
+
+dir.create(here("outputs", "figures", "report_theme"), recursive = TRUE, showWarnings = FALSE)
+dir.create(here("outputs", "tables"), recursive = TRUE, showWarnings = FALSE)
+```
+
+```{r}
+#--------------------------------------------------
+# 2. Report colour theme
+#--------------------------------------------------
+
+theme_report <- function(base_size = 13) {
+  theme_minimal(base_size = base_size) +
+    theme(
+      plot.background = element_rect(fill = "white", colour = NA),
+      panel.background = element_rect(fill = "white", colour = NA),
+      panel.grid.major = element_line(colour = "#E6DFF5", linewidth = 0.35),
+      panel.grid.minor = element_blank(),
+      axis.title = element_text(colour = "black", face = "bold"),
+      axis.text = element_text(colour = "black"),
+      plot.title = element_text(colour = "black", face = "bold", size = base_size + 4),
+      plot.subtitle = element_text(colour = "#4B3B66", size = base_size),
+      legend.title = element_text(colour = "black", face = "bold"),
+      legend.text = element_text(colour = "black"),
+      strip.text = element_text(colour = "black", face = "bold"))
+}
+
+purple_source <- c(
+  "Expression" = "#C4B5FD",
+  "Methylation" = "#8B5CF6",
+  "Multiomic" = "#111111")
+
+purple_model <- c(
+  "Elastic Net" = "#C4B5FD",
+  "Random Forest" = "#111111")
+
+purple_class <- c(
+  "No" = "#111111",
+  "Yes" = "#A78BFA")
+```
+
+```{r}
+#--------------------------------------------------
+# 3. Load RDS files for class balance
+#--------------------------------------------------
+
+expr_data <- read_rds(
+  here("data", "interim", "merged_clinical_expression_with_outcome.rds"))
+
+meth_data <- read_rds(
+  here("data", "interim", "merged_clinical_methylation_with_outcome.rds"))
+
+multi_data <- read_rds(
+  here("data", "interim", "merged_clinical_multiomic_with_outcome.rds"))
+
+class_balance <- bind_rows(
+  expr_data %>%
+    filter(!is.na(survival_500)) %>%
+    dplyr::count(survival_500, name = "n") %>%
+    mutate(dataset = "Expression"),
+  
+  meth_data %>%
+    filter(!is.na(survival_500)) %>%
+    dplyr::count(survival_500, name = "n") %>%
+    mutate(dataset = "Methylation"),
+  
+  multi_data %>%
+    filter(!is.na(survival_500)) %>%
+    dplyr::count(survival_500, name = "n") %>%
+    mutate(dataset = "Multiomic")) %>%
+  mutate(
+    dataset = factor(dataset, levels = c("Expression", "Methylation", "Multiomic")),
+    survival_500 = factor(survival_500, levels = c("No", "Yes"))
+  )
+
+class_balance
+```
+
+```{r}
+#--------------------------------------------------
+# 4. Figure: class balance
+#--------------------------------------------------
+
+p_class_balance <- class_balance %>%
+  ggplot(aes(x = dataset, y = n, fill = survival_500)) +
+  geom_col(position = position_dodge(width = 0.75), width = 0.68) +
+  geom_text(
+    aes(label = n),
+    position = position_dodge(width = 0.75),
+    vjust = -0.35,
+    colour = "black",
+    fontface = "bold",
+    size = 4) +
+  scale_fill_manual(values = purple_class) +
+  labs(
+    title = "500-day survival class balance by cohort",
+    subtitle = "Labelled patients used in each modelling dataset",
+    x = NULL,
+    y = "Count",
+    fill = "Survival > 500 days") +
+  theme_report(base_size = 13)
+
+p_class_balance
+
+ggsave(
+  here("outputs", "figures", "report_theme", "figure_class_balance_light_purple.png"),
+  plot = p_class_balance,
+  width = 8,
+  height = 5,
+  dpi = 300)
+```
+
+```{r}
+#--------------------------------------------------
+# 5. Load final model comparison table
+#--------------------------------------------------
+
+final_comparison <- read_csv(
+  here("outputs", "tables", "final_model_comparison_extended.csv"),
+  show_col_types = FALSE) %>%
+  mutate(
+    model = recode(
+      model,
+      "ElasticNet" = "Elastic Net",
+      "RandomForest" = "Random Forest"),
+    data_source = factor(data_source, levels = c("Expression", "Methylation", "Multiomic")))
+```
+
+```{r}
+#--------------------------------------------------
+# 6. Figure: CV ROC model comparison
+#--------------------------------------------------
+
+p_model_comparison <- final_comparison %>%
+  mutate(
+    model_label = paste(data_source, model),
+    model_label = fct_reorder(model_label, ROC)) %>%
+  ggplot(aes(x = ROC, y = model_label, fill = data_source)) +
+  geom_col(width = 0.7) +
+  geom_text(
+    aes(label = sprintf("%.3f", ROC)),
+    hjust = -0.15,
+    colour = "black",
+    fontface = "bold",
+    size = 4) +
+  scale_fill_manual(values = purple_source) +
+  scale_x_continuous(
+    limits = c(0, max(final_comparison$ROC, na.rm = TRUE) * 1.12)) +
+  labs(
+    title = "Cross-validated ROC by model",
+    subtitle = "Models ranked using repeated cross-validation ROC",
+    x = "CV ROC",
+    y = NULL,
+    fill = "Data source") +
+  theme_report(base_size = 13)
+
+p_model_comparison
+
+ggsave(
+  here("outputs", "figures", "report_theme", "figure_model_comparison_cv_roc_light_purple.png"),
+  plot = p_model_comparison,
+  width = 8.5,
+  height = 5.5,
+  dpi = 300)
+```
+
+```{r}
+#--------------------------------------------------
+# 7. Load saved CV predictions for ROC curves
+#--------------------------------------------------
+
+expr_preds <- read_csv(
+  here("outputs", "tables", "expression_cv_predictions.csv"),
+  show_col_types = FALSE) %>%
+  mutate(data_source = "Expression")
+
+meth_preds <- read_csv(
+  here("outputs", "tables", "methylation_cv_predictions.csv"),
+  show_col_types = FALSE) %>%
+  mutate(data_source = "Methylation")
+
+multi_preds <- read_csv(
+  here("outputs", "tables", "multiomic_cv_predictions.csv"),
+  show_col_types = FALSE) %>%
+  mutate(data_source = "Multiomic")
+
+rf_preds <- bind_rows(expr_preds, meth_preds, multi_preds) %>%
+  mutate(
+    model = recode(
+      model,
+      "RandomForest" = "Random Forest",
+      "ElasticNet" = "Elastic Net")) %>%
+  filter(model == "Random Forest") %>%
+  mutate(model_label = paste(data_source, "Random Forest"))
+```
+
+```{r}
+#--------------------------------------------------
+# 8. Figure: ROC curves for Random Forest models
+#--------------------------------------------------
+
+roc_df <- rf_preds %>%
+  group_by(model_label) %>%
+  group_modify(~ {
+    roc_obj <- roc(
+      response = .x$obs,
+      predictor = .x$Yes,
+      levels = c("No", "Yes"),
+      direction = "<")
+    tibble(
+      specificity = roc_obj$specificities,
+      sensitivity = roc_obj$sensitivities)
+  }) %>%
+  ungroup()
+
+p_roc <- roc_df %>%
+  ggplot(aes(x = 1 - specificity, y = sensitivity, colour = model_label)) +
+  geom_line(linewidth = 1.15) +
+  geom_abline(
+    intercept = 0,
+    slope = 1,
+    linetype = "dashed",
+    colour = "#999999") +
+  scale_colour_manual(
+    values = c(
+      "Expression Random Forest" = "#C4B5FD",
+      "Methylation Random Forest" = "#8B5CF6",
+      "Multiomic Random Forest" = "#111111")) +
+  labs(
+    title = "ROC curves for random forest models",
+    subtitle = "Sensitivity and false positive rate across classification thresholds",
+    x = "False positive rate",
+    y = "True positive rate",
+    colour = "Model") +
+  theme_report(base_size = 13)
+
+p_roc
+
+ggsave(
+  here("outputs", "figures", "report_theme", "figure_roc_curves_random_forest_light_purple.png"),
+  plot = p_roc,
+  width = 8,
+  height = 5,
+  dpi = 300)
+```
+
+```{r}
+#--------------------------------------------------
+# 9. Load sensitivity analysis results
+#--------------------------------------------------
+
+sensitivity_results <- read_csv(
+  here("outputs", "tables", "sensitivity_analysis_results.csv"),
+  show_col_types = FALSE)
+```
+
+```{r}
+#--------------------------------------------------
+# 10. Figure: sensitivity analysis
+#--------------------------------------------------
+
+p_sensitivity <- sensitivity_results %>%
+  mutate(
+    scenario_label = case_when(
+      scenario == "feature_count" ~ paste0(feature_count, " probes; 5×5 CV"),
+      scenario == "cv_design" ~ paste0("2,000 probes; ", folds, "×", repeats, " CV"),
+      TRUE ~ scenario),
+    scenario_label = fct_reorder(scenario_label, ROC)) %>%
+  ggplot(aes(x = ROC, y = scenario_label, fill = scenario)) +
+  geom_col(width = 0.7) +
+  geom_text(
+    aes(label = sprintf("%.3f", ROC)),
+    hjust = -0.15,
+    colour = "black",
+    fontface = "bold",
+    size = 4) +
+  scale_fill_manual(
+    values = c(
+      "feature_count" = "#8B5CF6",
+      "cv_design" = "#111111")) +
+  scale_x_continuous(
+    limits = c(0, max(sensitivity_results$ROC, na.rm = TRUE) * 1.12)) +
+  labs(
+    title = "Methylation random forest sensitivity analysis",
+    subtitle = "Robustness across feature counts and cross-validation designs",
+    x = "CV ROC",
+    y = NULL,
+    fill = NULL) +
+  theme_report(base_size = 13)
+
+p_sensitivity
+
+ggsave(
+  here("outputs", "figures", "report_theme", "figure_sensitivity_analysis_light_purple.png"),
+  plot = p_sensitivity,
+  width = 8.5,
+  height = 5,
+  dpi = 300)
+```
+
+```{r}
+#--------------------------------------------------
+# 11. Load methylation annotation table
+#--------------------------------------------------
+
+top_methylation_report_table <- read_csv(
+  here("outputs", "tables", "top_methylation_report_table.csv"),
+  show_col_types = FALSE)
+```
+
+```{r}
+#--------------------------------------------------
+# 12. Figure: top methylation feature importance
+#--------------------------------------------------
+
+p_meth_importance <- top_methylation_report_table %>%
+  mutate(
+    label = ifelse(Gene == "—", Probe, paste0(Gene, " (", Probe, ")")),
+    label = fct_reorder(label, Importance)) %>%
+  ggplot(aes(x = Importance, y = label)) +
+  geom_segment(
+    aes(x = 0, xend = Importance, y = label, yend = label),
+    colour = "#8B5CF6",
+    linewidth = 1.4) +
+  geom_point(
+    colour = "#111111",
+    fill = "#C4B5FD",
+    size = 4,
+    shape = 21,
+    stroke = 1.1) +
+  labs(
+    title = "Top methylation random forest features",
+    subtitle = "Variable importance mapped to annotated probes",
+    x = "Importance",
+    y = NULL) +
+  theme_report(base_size = 13)
+
+p_meth_importance
+
+ggsave(
+  here("outputs", "figures", "report_theme", "figure_top_methylation_importance_light_purple.png"),
+  plot = p_meth_importance,
+  width = 8.5,
+  height = 5,
+  dpi = 300)
+```
+
+```{r}
+#--------------------------------------------------
+# Confusion matrix plot: Multiomic Random Forest
+#--------------------------------------------------
+
+library(caret)
+library(tidyverse)
+library(here)
+
+multi_preds <- read_csv(
+  here("outputs", "tables", "multiomic_cv_predictions.csv"),
+  show_col_types = FALSE)
+
+multi_rf_preds <- multi_preds %>%
+  filter(model %in% c("RandomForest", "Random Forest"))
+
+multi_rf_cm <- confusionMatrix(
+  data = factor(multi_rf_preds$pred, levels = c("Yes", "No")),
+  reference = factor(multi_rf_preds$obs, levels = c("Yes", "No")),
+  positive = "Yes")
+
+multi_rf_cm_table <- as.data.frame(multi_rf_cm$table)
+
+names(multi_rf_cm_table) <- c("Predicted", "Actual", "Count")
+
+p_multi_rf_cm <- multi_rf_cm_table %>%
+  ggplot(aes(x = Actual, y = Predicted, fill = Count)) +
+  geom_tile(colour = "white", linewidth = 1.2) +
+  geom_text(aes(label = Count), colour = "white", fontface = "bold", size = 7) +
+  scale_fill_gradient(
+    low = "#C4B5FD",
+    high = "#111111") +
+  labs(
+    title = "Confusion matrix: Multiomic Random Forest",
+    subtitle = "Default classification threshold; Yes = survival beyond 500 days",
+    x = "Actual class",
+    y = "Predicted class",
+    fill = "Count") +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.background = element_rect(fill = "white", colour = NA),
+    panel.background = element_rect(fill = "white", colour = NA),
+    panel.grid = element_blank(),
+    axis.title = element_text(colour = "black", face = "bold"),
+    axis.text = element_text(colour = "black", face = "bold"),
+    plot.title = element_text(colour = "black", face = "bold", size = 17),
+    plot.subtitle = element_text(colour = "#4B3B66"),
+    legend.title = element_text(colour = "black", face = "bold"),
+    legend.text = element_text(colour = "black"))
+
+p_multi_rf_cm
+
+ggsave(
+  here("outputs", "figures", "report_theme", "figure_confusion_matrix_multiomic_rf_light_purple.png"),
+  plot = p_multi_rf_cm,
+  width = 7,
+  height = 5,
+  dpi = 300)
+```
+
+
+```{r}
+#--------------------------------------------------
+# 13. Save list of generated report figures
+#--------------------------------------------------
+
+report_figure_manifest <- tibble(
+  figure = c(
+    "Class balance",
+    "Model comparison CV ROC",
+    "ROC curves Random Forest",
+    "Sensitivity analysis",
+    "Top methylation importance"),
+  file = c(
+    "figure_class_balance_light_purple.png",
+    "figure_model_comparison_cv_roc_light_purple.png",
+    "figure_roc_curves_random_forest_light_purple.png",
+    "figure_sensitivity_analysis_light_purple.png",
+    "figure_top_methylation_importance_light_purple.png"))
+
+write_csv(
+  report_figure_manifest,
+  here("outputs", "figures", "report_theme", "report_figure_manifest.csv"))
+
+report_figure_manifest
+```
+

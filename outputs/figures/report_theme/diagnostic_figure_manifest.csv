@@ -1,0 +1,5 @@
+figure,file
+Confusion matrix: Multiomic RF,figure_confusion_matrix_multiomic_rf_light_purple.png
+Confusion matrix: Methylation RF,figure_confusion_matrix_methylation_rf_light_purple.png
+Threshold trade-off,figure_threshold_tradeoff_light_purple.png
+Calibration check,figure_calibration_check_light_purple.png

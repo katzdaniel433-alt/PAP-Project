@@ -14,13 +14,14 @@ library(caret)
 library(glmnet)
 library(ranger)
 library(pROC)
+library(tictoc)
+
+dir.create(here("outputs", "tables"), recursive = TRUE, showWarnings = FALSE)
+dir.create(here("outputs", "model_objects"), recursive = TRUE, showWarnings = FALSE)
 
 x_multiomic <- read_rds(here("data", "processed", "x_multiomic.rds"))
 y_multiomic <- read_rds(here("data", "processed", "y_multiomic.rds"))
 
-dir.create(here("outputs"), showWarnings = FALSE)
-dir.create(here("outputs", "tables"), showWarnings = FALSE)
-dir.create(here("outputs", "model_objects"), showWarnings = FALSE)
 ```
 
 ```{r}
@@ -31,7 +32,10 @@ dir.create(here("outputs", "model_objects"), showWarnings = FALSE)
 x_multiomic <- x_multiomic %>%
   mutate(across(everything(), as.numeric))
 
-y_multiomic <- factor(y_multiomic, levels = c("No", "Yes"))
+anyNA(x_multiomic)
+any(!is.finite(as.matrix(x_multiomic)))
+
+y_multiomic <- factor(y_multiomic, levels = c("Yes", "No"))
 
 table(y_multiomic)
 ```
@@ -49,8 +53,7 @@ ctrl <- trainControl(
   repeats = 5,
   classProbs = TRUE,
   summaryFunction = twoClassSummary,
-  savePredictions = "final"
-)
+  savePredictions = "final")
 ```
 
 ```{r}
@@ -59,20 +62,22 @@ ctrl <- trainControl(
 #--------------------------------------------------
 
 enet_grid <- expand.grid(
-  alpha = c(0, 0.25, 0.5, 0.75, 1),
-  lambda = 10^seq(-3, 1, length.out = 20)
-)
+  alpha = seq(0, 1, by = 0.1),
+  lambda = 10^seq(-4, 2, length.out = 50))
 
 set.seed(123)
 
+tic()
 model_enet_multi <- train(
   x = x_multiomic,
   y = y_multiomic,
   method = "glmnet",
   metric = "ROC",
   trControl = ctrl,
-  tuneGrid = enet_grid
+  tuneGrid = enet_grid,
+  preProcess = c("center", "scale")
 )
+toc()
 
 print(model_enet_multi)
 print(model_enet_multi$bestTune)
@@ -84,13 +89,13 @@ print(model_enet_multi$bestTune)
 #--------------------------------------------------
 
 rf_grid <- expand.grid(
-  mtry = c(20, 50, 100, 150),
+  mtry = c(5, 10, 20, 35, 50, 75, 100, 150, 250, 400),
   splitrule = "gini",
-  min.node.size = c(1, 5, 10)
-)
+  min.node.size = c(1, 3, 5, 10, 15, 20))
 
 set.seed(123)
 
+tic()
 model_rf_multi <- train(
   x = x_multiomic,
   y = y_multiomic,
@@ -98,9 +103,9 @@ model_rf_multi <- train(
   metric = "ROC",
   trControl = ctrl,
   tuneGrid = rf_grid,
-  num.trees = 500,
-  importance = "impurity"
-)
+  num.trees = 1000,
+  importance = "impurity")
+toc()
 
 print(model_rf_multi)
 print(model_rf_multi$bestTune)
@@ -114,9 +119,7 @@ print(model_rf_multi$bestTune)
 multi_resamples <- resamples(
   list(
     ElasticNet = model_enet_multi,
-    RandomForest = model_rf_multi
-  )
-)
+    RandomForest = model_rf_multi))
 
 summary(multi_resamples)
 
@@ -125,83 +128,102 @@ multi_model_summary <- bind_rows(
     mutate(model = "ElasticNet") %>%
     filter(
       alpha == model_enet_multi$bestTune$alpha,
-      lambda == model_enet_multi$bestTune$lambda
-    ),
+      lambda == model_enet_multi$bestTune$lambda),
   model_rf_multi$results %>%
     mutate(model = "RandomForest") %>%
     filter(
       mtry == model_rf_multi$bestTune$mtry,
       splitrule == model_rf_multi$bestTune$splitrule,
-      min.node.size == model_rf_multi$bestTune$min.node.size
-    )
-)
+      min.node.size == model_rf_multi$bestTune$min.node.size))
 
 print(multi_model_summary)
 
 write_csv(
   multi_model_summary,
-  here("outputs", "tables", "multiomic_model_summary.csv")
-)
+  here("outputs", "tables", "multiomic_model_summary.csv"))
 ```
 
 ```{r}
 #--------------------------------------------------
-# 7. Extract saved predictions for best tuning parameters
+# 7. Saved predictions for best tuning parameters
 #--------------------------------------------------
 
 enet_pred <- model_enet_multi$pred %>%
   filter(
     alpha == model_enet_multi$bestTune$alpha,
-    lambda == model_enet_multi$bestTune$lambda
-  ) %>%
+    lambda == model_enet_multi$bestTune$lambda) %>%
   mutate(model = "ElasticNet")
 
 rf_pred <- model_rf_multi$pred %>%
   filter(
     mtry == model_rf_multi$bestTune$mtry,
     splitrule == model_rf_multi$bestTune$splitrule,
-    min.node.size == model_rf_multi$bestTune$min.node.size
-  ) %>%
+    min.node.size == model_rf_multi$bestTune$min.node.size) %>%
   mutate(model = "RandomForest")
 
 multi_predictions <- bind_rows(enet_pred, rf_pred)
 
 write_csv(
   multi_predictions,
-  here("outputs", "tables", "multiomic_cv_predictions.csv")
-)
+  here("outputs", "tables", "multiomic_cv_predictions.csv"))
 ```
 
 ```{r}
+enet_cm <- confusionMatrix(
+  data = enet_pred$pred,
+  reference = enet_pred$obs,
+  positive = "Yes"
+)
+
+rf_cm <- confusionMatrix(
+  data = rf_pred$pred,
+  reference = rf_pred$obs,
+  positive = "Yes"
+)
+
+multi_confusion_stats <- bind_rows(
+  tibble(
+    model = "ElasticNet",
+    accuracy = as.numeric(enet_cm$overall["Accuracy"]),
+    sensitivity = as.numeric(enet_cm$byClass["Sensitivity"]),
+    specificity = as.numeric(enet_cm$byClass["Specificity"])),
+  tibble(
+    model = "RandomForest",
+    accuracy = as.numeric(rf_cm$overall["Accuracy"]),
+    sensitivity = as.numeric(rf_cm$byClass["Sensitivity"]),
+    specificity = as.numeric(rf_cm$byClass["Specificity"])))
+
+enet_cm
+rf_cm
+```
+
+
+```{r}
 #--------------------------------------------------
-# 8. Compute AUC from saved CV predictions
+# 8. AUC from saved CV predictions
 #--------------------------------------------------
 
 auc_enet <- roc(
   response = enet_pred$obs,
   predictor = enet_pred$Yes,
   levels = c("No", "Yes"),
-  direction = "<"
-)$auc
+  direction = "<")$auc
 
 auc_rf <- roc(
   response = rf_pred$obs,
   predictor = rf_pred$Yes,
   levels = c("No", "Yes"),
-  direction = "<"
-)$auc
+  direction = "<")$auc
 
 multi_auc_summary <- tibble(
   model = c("ElasticNet", "RandomForest"),
-  auc = c(as.numeric(auc_enet), as.numeric(auc_rf))
-)
+  auc = c(as.numeric(auc_enet), as.numeric(auc_rf)))
 
 print(multi_auc_summary)
 
 write_csv(
   multi_auc_summary,
-  here("outputs", "tables", "multiomic_auc_summary.csv")
-)
+  here("outputs", "tables", "multiomic_auc_summary.csv"))
 ```
 
 ```{r}
@@ -224,19 +246,42 @@ print(rf_varimp)
 
 write_csv(
   enet_varimp,
-  here("outputs", "tables", "multiomic_enet_top_features.csv")
-)
+  here("outputs", "tables", "multiomic_enet_top_features.csv"))
 
 write_csv(
   rf_varimp,
-  here("outputs", "tables", "multiomic_rf_top_features.csv")
-)
+  here("outputs", "tables", "multiomic_rf_top_features.csv"))
 ```
 
 ```{r}
 #--------------------------------------------------
 # 10. Save model objects
 #--------------------------------------------------
+
+write_csv(
+  as.data.frame(enet_cm$table),
+  here("outputs", "tables", "multiomic_enet_confusion_matrix.csv")
+)
+
+write_csv(
+  as.data.frame(rf_cm$table),
+  here("outputs", "tables", "multiomic_rf_confusion_matrix.csv")
+)
+
+write_csv(
+  multi_confusion_stats,
+  here("outputs", "tables", "multiomic_confusion_stats.csv")
+)
+
+write_csv(
+  model_enet_multi$results,
+  here("outputs", "tables", "multiomic_enet_full_tuning.csv")
+)
+
+write_csv(
+  model_rf_multi$results,
+  here("outputs", "tables", "multiomic_rf_full_tuning.csv")
+)
 
 saveRDS(
   model_enet_multi,

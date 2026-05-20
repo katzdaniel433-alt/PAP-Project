@@ -1,0 +1,4 @@
+model_label,auc
+Methylation Elastic Net,0.723980463980464
+Expression Elastic Net,0.7147368421052633
+Multiomic Elastic Net,0.6939849624060155

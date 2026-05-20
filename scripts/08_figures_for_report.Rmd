@@ -308,6 +308,218 @@ ggsave(
 ```
 
 ```{r}
+library(tidyverse)
+
+# Use your methylation RF variable importance table
+# Expected columns: feature, Overall
+
+top_meth_plot_df <- methylation_rf_varimp %>%
+  arrange(desc(Overall)) %>%
+  slice_head(n = 12) %>%
+  mutate(
+    feature = factor(feature, levels = rev(feature))
+  )
+
+p_top_meth_importance <- ggplot(top_meth_plot_df, aes(x = Overall, y = feature)) +
+  geom_segment(
+    aes(x = 0, xend = Overall, yend = feature),
+    linewidth = 3,
+    colour = "lightblue",
+    lineend = "round"
+  ) +
+  geom_point(
+    size = 3,
+    colour = "#FFD166"
+  ) +
+  labs(
+    title = "Top Methylation Features",
+    subtitle = "Random Forest variable importance",
+    x = "Importance",
+    y = NULL
+  ) +
+  scale_x_continuous(expand = expansion(mult = c(0.02, 0.10))) +
+  theme_minimal(base_size = 15) +
+  theme(
+    plot.background = element_rect(fill = "transparent", colour = NA),
+    panel.background = element_rect(fill = "transparent", colour = NA),
+
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.x = element_line(colour = "#B9C6DA", linewidth = 0.45),
+
+    axis.title.x = element_text(
+      colour = "white",
+      face = "bold",
+      size = 16,
+      margin = margin(t = 10)
+    ),
+    axis.text.x = element_text(
+      colour = "#D9E2F2",
+      size = 13
+    ),
+    axis.text.y = element_text(
+      colour = "white",
+      size = 13,
+      face = "bold"
+    ),
+
+    plot.title = element_text(
+      colour = "white",
+      face = "bold",
+      size = 30,
+      hjust = 0
+    ),
+    plot.subtitle = element_text(
+      colour = "#B9C6DA",
+      size = 16,
+      hjust = 0,
+      margin = margin(b = 12)
+    ),
+
+    axis.title.y = element_blank(),
+    plot.margin = margin(18, 30, 18, 18)
+  )
+
+p_top_meth_importance
+```
+
+```{r}
+library(tidyverse)
+
+#-------------------------------
+# 1. Prepare top methylation features
+#-------------------------------
+top_meth_plot_df <- methylation_rf_varimp %>%
+  arrange(desc(Overall)) %>%
+  slice_head(n = 15) %>%
+  mutate(
+    feature = feature,
+    y = rev(seq_len(n()))
+  )
+
+#-------------------------------
+# 2. Build tiny segments to mimic a gradient
+#-------------------------------
+n_segments <- 120
+
+gradient_df <- map_dfr(seq_len(nrow(top_meth_plot_df)), function(i) {
+  
+  x_max <- top_meth_plot_df$Overall[i]
+  
+  tibble(
+    feature = top_meth_plot_df$feature[i],
+    y = top_meth_plot_df$y[i],
+    x_start = seq(0, x_max, length.out = n_segments + 1)[1:n_segments],
+    x_end   = seq(0, x_max, length.out = n_segments + 1)[2:(n_segments + 1)],
+    seg_id  = 1:n_segments
+  )
+})
+
+# gold gradient palette: darker -> lighter
+gold_gradient <- colorRampPalette(c("#8C5A08", "#C88412", "#F6D36B"))(n_segments)
+
+gradient_df <- gradient_df %>%
+  mutate(seg_col = gold_gradient[seg_id])
+
+#-------------------------------
+# 3. Plot
+#-------------------------------
+p_top_meth_importance_gradient <- ggplot() +
+  
+  # gradient importance bars
+  geom_segment(
+    data = gradient_df,
+    aes(x = x_start, xend = x_end, y = y, yend = y, colour = seg_col),
+    linewidth = 3,
+    lineend = "round",
+    show.legend = FALSE
+  ) +
+  
+  # end points
+  geom_point(
+    data = top_meth_plot_df,
+    aes(x = Overall, y = y),
+    size = 4,
+    colour = "#F6D36B"
+  ) +
+  
+  # labels on left
+  geom_text(
+    data = top_meth_plot_df,
+    aes(x = -0.01, y = y, label = feature),
+    hjust = 1,
+    colour = "black",
+    fontface = "bold",
+    size = 7
+  ) +
+  
+  scale_colour_identity() +
+  scale_x_continuous(
+    limits = c(-0.02, max(top_meth_plot_df$Overall) * 1.12),
+    expand = c(0, 0)
+  ) +
+  scale_y_continuous(
+    breaks = top_meth_plot_df$y,
+    labels = NULL,
+    expand = expansion(mult = c(0.04, 0.04))
+  ) +
+  labs(
+    title = "Top Methylation Features",
+    subtitle = "Random Forest variable importance",
+    x = "Importance",
+    y = NULL
+  ) +
+  theme_minimal(base_size = 15) +
+  theme(
+    plot.background = element_rect(fill = "transparent", colour = NA),
+    panel.background = element_rect(fill = "transparent", colour = NA),
+    legend.background = element_rect(fill = "transparent", colour = NA),
+    legend.key = element_rect(fill = "transparent", colour = NA),
+    
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.x = element_line(colour = "#B9C6DA", linewidth = 0.45),
+    
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    axis.title.y = element_blank(),
+    
+    axis.title.x = element_text(
+      colour = "white",
+      face = "bold",
+      size = 18
+    ),
+    axis.text.x = element_text(
+      colour = "#D9E2F2",
+      size = 14
+    ),
+    
+    plot.title = element_text(
+      colour = "white",
+      face = "bold",
+      size = 34,
+      hjust = 0
+    ),
+    plot.subtitle = element_text(
+      colour = "#B9C6DA",
+      size = 18,
+      hjust = 0
+    ),
+    
+    plot.margin = margin(20, 30, 20, 80)
+  )
+
+p_top_meth_importance_gradient
+
+ggsave(
+  here("outputs", "figures", "methylation_importance_lollipop_transparent.png"),
+  plot = p_top_meth_importance_gradient,
+  width = 9,
+  height = 6)
+```
+
+
+```{r}
 #--------------------------------------------------
 # 10. Figure 7: top methylation feature network
 #--------------------------------------------------

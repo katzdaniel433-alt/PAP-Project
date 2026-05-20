@@ -1,0 +1,448 @@
+---
+title: "14_diagnostic_figures_light_theme"
+output: html_document
+---
+
+```{r}
+#--------------------------------------------------
+# 1. Load packages
+#--------------------------------------------------
+
+library(tidyverse)
+library(here)
+library(caret)
+library(pROC)
+library(forcats)
+
+dir.create(here("outputs", "figures", "report_theme"), recursive = TRUE, showWarnings = FALSE)
+dir.create(here("outputs", "tables"), recursive = TRUE, showWarnings = FALSE)
+```
+
+```{r}
+#--------------------------------------------------
+# 2. Light purple + black theme
+#--------------------------------------------------
+
+theme_report <- function(base_size = 13) {
+  theme_minimal(base_size = base_size) +
+    theme(
+      plot.background = element_rect(fill = "white", colour = NA),
+      panel.background = element_rect(fill = "white", colour = NA),
+      panel.grid.major = element_line(colour = "#E6DFF5", linewidth = 0.35),
+      panel.grid.minor = element_blank(),
+      axis.title = element_text(colour = "black", face = "bold"),
+      axis.text = element_text(colour = "black"),
+      plot.title = element_text(colour = "black", face = "bold", size = base_size + 4),
+      plot.subtitle = element_text(colour = "#4B3B66", size = base_size),
+      legend.title = element_text(colour = "black", face = "bold"),
+      legend.text = element_text(colour = "black"),
+      strip.text = element_text(colour = "black", face = "bold"))
+}
+
+purple_class <- c(
+  "No" = "#111111",
+  "Yes" = "#A78BFA")
+
+purple_model <- c(
+  "Methylation Random Forest" = "#8B5CF6",
+  "Multiomic Random Forest" = "#111111")
+```
+
+```{r}
+#--------------------------------------------------
+# 3. Load saved CV predictions
+#--------------------------------------------------
+
+meth_preds <- read_csv(
+  here("outputs", "tables", "methylation_cv_predictions.csv"),
+  show_col_types = FALSE) %>%
+  mutate(data_source = "Methylation")
+
+multi_preds <- read_csv(
+  here("outputs", "tables", "multiomic_cv_predictions.csv"),
+  show_col_types = FALSE) %>%
+  mutate(data_source = "Multiomic")
+
+rf_preds <- bind_rows(meth_preds, multi_preds) %>%
+  mutate(
+    model = recode(
+      model,
+      "RandomForest" = "Random Forest",
+      "ElasticNet" = "Elastic Net")) %>%
+  filter(model == "Random Forest") %>%
+  mutate(
+    model_label = paste(data_source, "Random Forest"),
+    obs = factor(obs, levels = c("Yes", "No")),
+    pred = factor(pred, levels = c("Yes", "No")))
+```
+
+```{r}
+#--------------------------------------------------
+# 4. Helper function: confusion matrix plot
+#--------------------------------------------------
+
+make_cm_plot <- function(pred_df, model_name, file_name) {
+  
+  cm <- confusionMatrix(
+    data = factor(pred_df$pred, levels = c("Yes", "No")),
+    reference = factor(pred_df$obs, levels = c("Yes", "No")),
+    positive = "Yes")
+  
+  cm_table <- as.data.frame(cm$table)
+  names(cm_table) <- c("Predicted", "Actual", "Count")
+  
+  p <- cm_table %>%
+    ggplot(aes(x = Actual, y = Predicted, fill = Count)) +
+    geom_tile(colour = "white", linewidth = 1.2) +
+    geom_text(
+      aes(label = Count),
+      colour = "white",
+      fontface = "bold",
+      size = 7) +
+    scale_fill_gradient(
+      low = "#C4B5FD",
+      high = "#111111") +
+    labs(
+      title = paste("Confusion matrix:", model_name),
+      subtitle = "Default classification threshold; Yes = survival beyond 500 days",
+      x = "Actual class",
+      y = "Predicted class",
+      fill = "Count") +
+    theme_report(base_size = 13) +
+    theme(panel.grid = element_blank())
+  
+  ggsave(
+    here("outputs", "figures", "report_theme", file_name),
+    plot = p,
+    width = 7,
+    height = 5,
+    dpi = 300)
+  
+  list(plot = p, cm = cm)
+}
+```
+
+```{r}
+#--------------------------------------------------
+# 4. Helper function: confusion matrix plot
+#--------------------------------------------------
+
+make_cm_plot <- function(pred_df, model_name, file_name) {
+  
+  cm <- confusionMatrix(
+    data = factor(pred_df$pred, levels = c("Yes", "No")),
+    reference = factor(pred_df$obs, levels = c("Yes", "No")),
+    positive = "Yes")
+  
+  cm_table <- as.data.frame(cm$table)
+  names(cm_table) <- c("Predicted", "Actual", "Count")
+  
+  p <- cm_table %>%
+    ggplot(aes(x = Actual, y = Predicted, fill = Count)) +
+    geom_tile(colour = "white", linewidth = 1.2) +
+    geom_text(
+      aes(label = Count),
+      colour = "white",
+      fontface = "bold",
+      size = 7) +
+    scale_fill_gradient(
+      low = "#C4B5FD",
+      high = "#111111") +
+    labs(
+      title = paste("Confusion matrix:", model_name),
+      subtitle = "Default classification threshold; Yes = survival beyond 500 days",
+      x = "Actual class",
+      y = "Predicted class",
+      fill = "Count") +
+    theme_report(base_size = 13) +
+    theme(panel.grid = element_blank())
+  
+  ggsave(
+    here("outputs", "figures", "report_theme", file_name),
+    plot = p,
+    width = 7,
+    height = 5,
+    dpi = 300)
+  
+  list(plot = p, cm = cm)
+}
+```
+
+```{r}
+#--------------------------------------------------
+# 5. Confusion matrix: Multiomic RF
+#--------------------------------------------------
+
+multi_rf_preds <- rf_preds %>%
+  filter(model_label == "Multiomic Random Forest")
+
+multi_cm_out <- make_cm_plot(
+  pred_df = multi_rf_preds,
+  model_name = "Multiomic Random Forest",
+  file_name = "figure_confusion_matrix_multiomic_rf_light_purple.png")
+
+multi_cm_out$plot
+multi_cm_out$cm
+```
+
+```{r}
+#--------------------------------------------------
+# 6. Confusion matrix: Methylation RF
+#--------------------------------------------------
+
+meth_rf_preds <- rf_preds %>%
+  filter(model_label == "Methylation Random Forest")
+
+meth_cm_out <- make_cm_plot(
+  pred_df = meth_rf_preds,
+  model_name = "Methylation Random Forest",
+  file_name = "figure_confusion_matrix_methylation_rf_light_purple.png")
+
+meth_cm_out$plot
+meth_cm_out$cm
+```
+
+```{r}
+#--------------------------------------------------
+# 7. Save confusion matrix statistics
+#--------------------------------------------------
+
+confusion_stats <- bind_rows(
+  tibble(
+    model = "Multiomic Random Forest",
+    accuracy = as.numeric(multi_cm_out$cm$overall["Accuracy"]),
+    sensitivity = as.numeric(multi_cm_out$cm$byClass["Sensitivity"]),
+    specificity = as.numeric(multi_cm_out$cm$byClass["Specificity"])
+  ),
+  tibble(
+    model = "Methylation Random Forest",
+    accuracy = as.numeric(meth_cm_out$cm$overall["Accuracy"]),
+    sensitivity = as.numeric(meth_cm_out$cm$byClass["Sensitivity"]),
+    specificity = as.numeric(meth_cm_out$cm$byClass["Specificity"])))
+
+confusion_stats
+
+write_csv(
+  confusion_stats,
+  here("outputs", "tables", "diagnostic_confusion_stats.csv"))
+```
+
+```{r}
+#--------------------------------------------------
+# 8. Threshold trade-off data
+#--------------------------------------------------
+
+threshold_grid <- seq(0.05, 0.95, by = 0.01)
+
+threshold_metrics <- rf_preds %>%
+  select(model_label, obs, Yes) %>%
+  group_by(model_label) %>%
+  group_modify(~ {
+    
+    map_dfr(threshold_grid, function(thresh) {
+      
+      pred_class <- ifelse(.x$Yes >= thresh, "Yes", "No")
+      
+      cm <- confusionMatrix(
+        data = factor(pred_class, levels = c("Yes", "No")),
+        reference = factor(.x$obs, levels = c("Yes", "No")),
+        positive = "Yes")
+      
+      tibble(
+        threshold = thresh,
+        sensitivity = as.numeric(cm$byClass["Sensitivity"]),
+        specificity = as.numeric(cm$byClass["Specificity"]),
+        accuracy = as.numeric(cm$overall["Accuracy"]))
+    })
+  }) %>%
+  ungroup()
+
+write_csv(
+  threshold_metrics,
+  here("outputs", "tables", "threshold_tradeoff_metrics.csv"))
+```
+
+```{r}
+#--------------------------------------------------
+# 9. Figure: threshold trade-off
+#--------------------------------------------------
+
+threshold_plot_df <- threshold_metrics %>%
+  pivot_longer(
+    cols = c(sensitivity, specificity),
+    names_to = "metric",
+    values_to = "value"
+  ) %>%
+  mutate(
+    metric = recode(
+      metric,
+      sensitivity = "Sensitivity",
+      specificity = "Specificity"))
+
+p_threshold <- threshold_plot_df %>%
+  ggplot(aes(x = threshold, y = value, colour = metric, linetype = metric)) +
+  geom_line(linewidth = 1.1) +
+  facet_wrap(~ model_label) +
+  geom_vline(
+    xintercept = 0.5,
+    colour = "#4B3B66",
+    linetype = "dashed",
+    linewidth = 0.7) +
+  scale_colour_manual(
+    values = c(
+      "Sensitivity" = "#8B5CF6",
+      "Specificity" = "#111111")) +
+  labs(
+    title = "Sensitivity and specificity across classification thresholds",
+    subtitle = "Dashed line indicates the default 0.5 threshold",
+    x = "Probability threshold for predicting survival > 500 days",
+    y = "Metric value",
+    colour = NULL,
+    linetype = NULL) +
+  theme_report(base_size = 13)
+
+p_threshold
+
+ggsave(
+  here("outputs", "figures", "report_theme", "figure_threshold_tradeoff_light_purple.png"),
+  plot = p_threshold,
+  width = 9,
+  height = 5,
+  dpi = 300)
+```
+
+```{r}
+#--------------------------------------------------
+# 10. Calibration-style data
+#--------------------------------------------------
+
+calibration_df <- rf_preds %>%
+  mutate(
+    observed_yes = ifelse(obs == "Yes", 1, 0),
+    prob_bin = ntile(Yes, 5)) %>%
+  group_by(model_label, prob_bin) %>%
+  summarise(
+    mean_predicted_prob = mean(Yes, na.rm = TRUE),
+    observed_yes_rate = mean(observed_yes, na.rm = TRUE),
+    n = n(),
+    .groups = "drop")
+
+calibration_df
+
+write_csv(
+  calibration_df,
+  here("outputs", "tables", "rf_calibration_summary.csv"))
+```
+
+```{r}
+#--------------------------------------------------
+# 11. Figure: calibration-style plot
+#--------------------------------------------------
+
+p_calibration <- calibration_df %>%
+  ggplot(aes(x = mean_predicted_prob, y = observed_yes_rate, colour = model_label)) +
+  geom_abline(
+    intercept = 0,
+    slope = 1,
+    linetype = "dashed",
+    colour = "#999999") +
+  geom_line(linewidth = 1.0) +
+  geom_point(size = 3) +
+  scale_colour_manual(values = purple_model) +
+  scale_x_continuous(limits = c(0, 1)) +
+  scale_y_continuous(limits = c(0, 1)) +
+  labs(
+    title = "Exploratory calibration check",
+    subtitle = "Observed survival rate by predicted probability quintile",
+    x = "Mean predicted probability of survival > 500 days",
+    y = "Observed proportion surviving > 500 days",
+    colour = "Model") +
+  theme_report(base_size = 13)
+
+p_calibration
+
+ggsave(
+  here("outputs", "figures", "report_theme", "figure_calibration_check_light_purple.png"),
+  plot = p_calibration,
+  width = 8,
+  height = 5,
+  dpi = 300)
+```
+
+```{r}
+#--------------------------------------------------
+# 12. Save diagnostic figure manifest
+#--------------------------------------------------
+
+diagnostic_figure_manifest <- tibble(
+  figure = c(
+    "Confusion matrix: Multiomic RF",
+    "Confusion matrix: Methylation RF",
+    "Threshold trade-off",
+    "Calibration check"),
+  file = c(
+    "figure_confusion_matrix_multiomic_rf_light_purple.png",
+    "figure_confusion_matrix_methylation_rf_light_purple.png",
+    "figure_threshold_tradeoff_light_purple.png",
+    "figure_calibration_check_light_purple.png"))
+
+write_csv(
+  diagnostic_figure_manifest,
+  here("outputs", "figures", "report_theme", "diagnostic_figure_manifest.csv"))
+
+diagnostic_figure_manifest
+```
+
+```{r}
+#--------------------------------------------------
+# 12. Save diagnostic figure manifest
+#--------------------------------------------------
+
+diagnostic_figure_manifest <- tibble(
+  figure = c(
+    "Confusion matrix: Multiomic RF",
+    "Confusion matrix: Methylation RF",
+    "Threshold trade-off",
+    "Calibration check"),
+  file = c(
+    "figure_confusion_matrix_multiomic_rf_light_purple.png",
+    "figure_confusion_matrix_methylation_rf_light_purple.png",
+    "figure_threshold_tradeoff_light_purple.png",
+    "figure_calibration_check_light_purple.png"))
+
+write_csv(
+  diagnostic_figure_manifest,
+  here("outputs", "figures", "report_theme", "diagnostic_figure_manifest.csv"))
+
+diagnostic_figure_manifest
+```
+```{r}
+p_age_survival <- clinical_master %>%
+  filter(!is.na(survival_500), !is.na(age_at_index)) %>%
+  mutate(
+    survival_500 = factor(survival_500, levels = c("No", "Yes"))) %>%
+  ggplot(aes(x = survival_500, y = age_at_index, fill = survival_500)) +
+  geom_boxplot(alpha = 0.8, width = 0.6, outlier.alpha = 0.5) +
+  geom_jitter(width = 0.12, alpha = 0.5, size = 1.8, colour = "black") +
+  scale_fill_manual(
+    values = c(
+      "No" = "#111111",
+      "Yes" = "#A78BFA")) +
+  labs(
+    title = "Age distribution by 500-day survival status",
+    subtitle = "Clinical cohort profile after outcome construction",
+    x = "Survival > 500 days",
+    y = "Age at index",
+    fill = "Survival > 500 days") +
+  theme_report(base_size = 13)
+
+p_age_survival
+
+ggsave(
+  here("outputs", "figures", "report_theme", "figure_age_by_survival_light_purple.png"),
+  plot = p_age_survival,
+  width = 8,
+  height = 5,
+  dpi = 300)
+```
+

@@ -1,0 +1,10 @@
+survival_500,n,cohort
+No,38,Expression
+Yes,42,Expression
+NA,5,Expression
+No,39,Methylation
+Yes,42,Methylation
+NA,5,Methylation
+No,38,Multiomic
+Yes,42,Multiomic
+NA,5,Multiomic

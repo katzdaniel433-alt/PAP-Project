@@ -1,0 +1,292 @@
+---
+title: "08_sensitivity_analysis"
+output: html_document
+---
+
+```{r}
+#--------------------------------------------------
+# 1. Load packages and intermediate data
+#--------------------------------------------------
+
+library(tidyverse)
+library(here)
+library(caret)
+library(ranger)
+library(pROC)
+
+merged_clinical_methylation <- read_rds(
+  here("data", "interim", "merged_clinical_methylation_with_outcome.rds"))
+
+dir.create(here("outputs", "tables"), recursive = TRUE, showWarnings = FALSE)
+dir.create(here("outputs", "figures"), recursive = TRUE, showWarnings = FALSE)
+```
+
+```{r}
+#--------------------------------------------------
+# 2. Helper functions
+#--------------------------------------------------
+
+prop_missing_vec <- function(x) mean(is.na(x))
+variance_vec <- function(x) var(x, na.rm = TRUE)
+```
+
+```{r}
+#--------------------------------------------------
+# 3. Prepare methylation modelling dataset
+#--------------------------------------------------
+
+meth_model <- merged_clinical_methylation %>%
+  filter(!is.na(survival_500))
+
+meth_model <- meth_model %>%
+  mutate(
+    survival_500 = factor(survival_500, levels = c("Yes", "No")))
+
+meta_cols <- intersect(
+  c(
+    "sample_submitter_id",
+    "case_submitter_id",
+    "case_uuid",
+    "project_id",
+    "age_at_index",
+    "gender",
+    "race",
+    "ethnicity",
+    "days_to_death",
+    "days_to_follow_up",
+    "survival_500"),
+  names(meth_model))
+
+meth_feature_cols <- setdiff(names(meth_model), meta_cols)
+```
+
+```{r}
+#--------------------------------------------------
+# 4. Function to build top-N methylation matrix
+#--------------------------------------------------
+
+build_top_meth <- function(df, feature_cols, n_features = 2000, missing_cutoff = 0.10) {
+  
+  meth_missing <- df %>%
+    summarise(across(all_of(feature_cols), prop_missing_vec)) %>%
+    pivot_longer(
+      everything(),
+      names_to = "feature",
+      values_to = "prop_missing")
+  
+  keep_missing <- meth_missing %>%
+    filter(prop_missing <= missing_cutoff) %>%
+    pull(feature)
+  
+  meth_var <- df %>%
+    select(all_of(keep_missing)) %>%
+    summarise(across(everything(), variance_vec)) %>%
+    pivot_longer(
+      everything(),
+      names_to = "feature",
+      values_to = "variance")
+  
+  keep_var <- meth_var %>%
+    filter(is.finite(variance), !is.na(variance), variance > 0)
+  
+  n_keep <- min(n_features, nrow(keep_var))
+  
+  top_features <- keep_var %>%
+    arrange(desc(variance)) %>%
+    slice_head(n = n_keep) %>%
+    pull(feature)
+  
+  x <- df %>%
+    select(all_of(top_features)) %>%
+    mutate(across(
+      everything(),
+      ~ ifelse(is.na(.x), median(.x, na.rm = TRUE), .x)))
+  
+  list(
+    x = x,
+    y = df$survival_500,
+    features = top_features)
+}
+```
+
+```{r}
+#--------------------------------------------------
+# 5. Function to fit RF under chosen CV design
+#--------------------------------------------------
+
+fit_rf_cv <- function(x, y, folds = 5, repeats = 5, seed = 123) {
+  
+  ctrl <- trainControl(
+    method = "repeatedcv",
+    number = folds,
+    repeats = repeats,
+    classProbs = TRUE,
+    summaryFunction = twoClassSummary,
+    savePredictions = "final")
+  
+  rf_grid <- expand.grid(
+    mtry = c(5, 10, 20, 35, 50, 75, 100, 150, 250, 400),
+    splitrule = "gini",
+    min.node.size = c(1, 3, 5, 10, 15, 20))
+  
+  set.seed(seed)
+  
+  model_rf <- train(
+    x = x,
+    y = y,
+    method = "ranger",
+    metric = "ROC",
+    trControl = ctrl,
+    tuneGrid = rf_grid,
+    num.trees = 1000,
+    importance = "impurity")
+  
+  pred_best <- model_rf$pred %>%
+    filter(
+      mtry == model_rf$bestTune$mtry,
+      splitrule == model_rf$bestTune$splitrule,
+      min.node.size == model_rf$bestTune$min.node.size)
+  
+  auc_val <- roc(
+    response = pred_best$obs,
+    predictor = pred_best$Yes,
+    levels = c("No", "Yes"),
+    direction = "<")$auc
+  
+  best_row <- model_rf$results %>%
+  filter(
+    mtry == model_rf$bestTune$mtry,
+    splitrule == model_rf$bestTune$splitrule,
+    min.node.size == model_rf$bestTune$min.node.size)
+  
+  tibble(
+  folds = folds,
+  repeats = repeats,
+  best_mtry = model_rf$bestTune$mtry,
+  best_min_node_size = model_rf$bestTune$min.node.size,
+  ROC = best_row$ROC,
+  Sens = best_row$Sens,
+  Spec = best_row$Spec,
+  auc = as.numeric(auc_val))
+}
+```
+
+```{r}
+#--------------------------------------------------
+# 6. Sensitivity by feature count
+#--------------------------------------------------
+
+feature_counts <- c(1500, 2000, 2500)
+
+sensitivity_feature_results <- map_dfr(feature_counts, function(nf) {
+  meth_obj <- build_top_meth(
+    df = meth_model,
+    feature_cols = meth_feature_cols,
+    n_features = nf,
+    missing_cutoff = 0.10)
+  
+  res <- fit_rf_cv(
+    x = meth_obj$x,
+    y = meth_obj$y,
+    folds = 5,
+    repeats = 5,
+    seed = 123)
+  
+  res %>%
+    mutate(
+      scenario = "feature_count",
+      feature_count = nf)
+})
+```
+
+```{r}
+#--------------------------------------------------
+# 7. Sensitivity by CV design
+#--------------------------------------------------
+
+cv_settings <- tribble(
+  ~folds, ~repeats,
+  3,      5,
+  10,     3)
+
+meth_obj_2000 <- build_top_meth(
+  df = meth_model,
+  feature_cols = meth_feature_cols,
+  n_features = 2000,
+  missing_cutoff = 0.10)
+
+sensitivity_cv_results <- pmap_dfr(cv_settings, function(folds, repeats) {
+  fit_rf_cv(
+    x = meth_obj_2000$x,
+    y = meth_obj_2000$y,
+    folds = folds,
+    repeats = repeats,
+    seed = 123) %>%
+    mutate(
+      scenario = "cv_design",
+      feature_count = 2000)
+})
+```
+
+```{r}
+#--------------------------------------------------
+# 8. Save outputs
+#--------------------------------------------------
+
+sensitivity_results <- bind_rows(
+  sensitivity_feature_results,
+  sensitivity_cv_results) %>%
+  mutate(
+    setting = case_when(
+      scenario == "feature_count" ~ paste0(feature_count, " probes; 5-fold × 5 repeats"),
+      scenario == "cv_design" ~ paste0("2000 probes; ", folds, "-fold × ", repeats, " repeats"),
+      TRUE ~ scenario))
+
+print(sensitivity_results)
+
+write_csv(
+  sensitivity_results,
+  here("outputs", "tables", "sensitivity_analysis_results.csv"))
+```
+
+```{r}
+sensitivity_plot_df <- sensitivity_results %>%
+  mutate(
+    scenario_label = case_when(
+      scenario == "feature_count" ~ paste0(feature_count, " probes"),
+      scenario == "cv_design" ~ paste0(folds, "-fold × ", repeats, " repeats"),
+      TRUE ~ scenario))
+
+p_sensitivity <- sensitivity_plot_df %>%
+  ggplot(aes(x = reorder(scenario_label, ROC), y = ROC, fill = scenario)) +
+  geom_col(width = 0.7) +
+  geom_text(
+    aes(label = sprintf("%.3f", ROC)),
+    hjust = -0.15,
+    colour = "white",
+    fontface = "bold",
+    size = 4) +
+  coord_flip() +
+  scale_fill_manual(
+    values = c(
+      "feature_count" = "#F59E0B",
+      "cv_design" = "#19E0E6")) +
+  scale_y_continuous(
+    limits = c(0, max(sensitivity_plot_df$ROC, na.rm = TRUE) * 1.12)) +
+  labs(
+    title = "Methylation RF sensitivity analysis",
+    x = NULL,
+    y = "Cross-validated ROC",
+    fill = NULL) +
+  theme_minimal(base_size = 14)
+
+p_sensitivity
+
+ggsave(
+  here("outputs", "figures", "sensitivity_analysis_rf_methylation.png"),
+  plot = p_sensitivity,
+  width = 9,
+  height = 5,
+  dpi = 300)
+```
+

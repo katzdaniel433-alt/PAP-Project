@@ -1,0 +1,3 @@
+model,accuracy,sensitivity,specificity
+Multiomic Random Forest,0.705,0.7761904761904762,0.6263157894736842
+Methylation Random Forest,0.6839506172839506,0.7380952380952381,0.6256410256410256
