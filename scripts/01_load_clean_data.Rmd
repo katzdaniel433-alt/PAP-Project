@@ -142,7 +142,7 @@ sample_manifest <- sample_sheet %>%
 
 ```{r}
 #--------------------------------------------------
-# 4. Building a master file for clinical data
+# 4. Master file for clinical data
 #--------------------------------------------------
 
 # Pathology, exposure and family history files were inspected initially, but not retained in the modelling table.
@@ -192,7 +192,7 @@ clinical_master <- clinical_core %>%
 
 ```{r}
 #--------------------------------------------------
-# Clinical checks
+# 5. Clinical checks
 #--------------------------------------------------
 
 clinical_missing_summary <- clinical_master %>%
@@ -256,8 +256,6 @@ expr_t <- expr_clean %>%
   ) %>%
   relocate(case_submitter_id, .after = sample_submitter_id) %>% 
   distinct(case_submitter_id, .keep_all = TRUE)
-
-# Retain one expression sample per case
 
 sum(duplicated(expr_t$case_submitter_id))
 sum(duplicated(expr_t$sample_submitter_id))
@@ -406,6 +404,7 @@ id_checks <- tibble(
 
 id_checks
 ```
+
 ```{r}
 # Unmatched cases
 
