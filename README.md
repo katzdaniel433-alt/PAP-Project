@@ -15,7 +15,6 @@ Two modelling approaches are compared:
 - Elastic Net logistic regression
 - Random Forest classification
 
-The primary performance metric is cross-validated ROC, with pooled AUC, sensitivity and specificity used as supporting measures.
 
 ---
 
